@@ -52,6 +52,7 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
     add('layout.unrecognized', 'blocker', 'No unambiguous supported application entry point was found.', '.', 1, 'Choose a matching preset, use one supported app at the root, or provide a Dockerfile.');
   }
   const spec = detection?.parameters;
+  let unsupportedFramework: string | null = null;
   const backend = backendSpec(spec);
   if (backend?.kind === 'node' && backend.framework === 'node' && !backend.hasStart && !backend.main && !settings.startCommand) add('entry.node', 'blocker', 'Node app has no start script or main entry point.', `${backend.root}/package.json`, 1, 'Add a start script or set Start command.');
   if ((spec?.kind === 'node' && ['vite', 'cra'].includes(spec.framework) || spec?.kind === 'fullstack' && spec.frontend.kind === 'node') && !settings.buildCommand) {
@@ -88,10 +89,24 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
     if (/models\.(?:Model|CharField)|django\.db/.test(source)) hasDjangoModels = true;
     source.split(/\r?\n/).forEach((line, index) => {
       const number = index + 1;
+      if (/^\s*(?:#|\/\/)/.test(line)) return;
+      if (!detection && !ownDockerfile && /^\s*(?:import\s+streamlit\b|from\s+streamlit\s+import\b)/.test(line)) {
+        unsupportedFramework = 'Streamlit';
+        const unknown = findings.find((f) => f.id === 'layout.unrecognized');
+        if (unknown) {
+          unknown.id = 'framework.streamlit';
+          unknown.message = 'Streamlit was recognized, but has no generated build recipe in this version.';
+          unknown.evidence = [{ file: filename, line: number }];
+          unknown.fix = 'Provide a root Dockerfile running streamlit run with --server.address=0.0.0.0 and --server.port=$PORT. Local model inference still needs separate infrastructure.';
+        }
+      }
       // Do not return source snippets: even a default or example can be a secret.
       const envPattern = /process\.env(?:\.([A-Z][A-Z0-9_]{0,99})|\[\s*["']([A-Z][A-Z0-9_]{0,99})["']\s*\])|os\.environ\[\s*["']([A-Z][A-Z0-9_]{0,99})["']\s*\]|(?:os\.getenv|os\.environ\.get|\benv)\(\s*["']([A-Z][A-Z0-9_]{0,99})["']/g;
       for (const match of line.matchAll(envPattern)) {
         const name = match[1] ?? match[2] ?? match[3] ?? match[4];
+        // An assignment configures the process; it is not a missing input.
+        // Keep comparisons (==/===) and augmented assignments as reads.
+        if ((match[1] || match[2] || match[3]) && /^\s*=(?!=)/.test(line.slice(match.index! + match[0].length))) continue;
         const certain = !!match[3] || filename.endsWith('.prisma') && !!match[4];
         const existing = required.get(name);
         if (!existing || certain) required.set(name, { filename, line: number, certain });
@@ -117,7 +132,11 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
         ['email', /nodemailer|\bsmtp\b/i, 'Provide an external email service and its credentials.'],
       ] as const;
       for (const [service, pattern, fix] of serviceRules) if (pattern.test(line) && !findings.some((f) => f.id === `service.${service}`)) add(`service.${service}`, 'warning', `External ${service} configuration may be needed.`, filename, number, fix);
-      if (/\b(?:torch|tensorflow|transformers|CUDA)\b|--gpus/.test(line)) add('layout.ml', 'blocker', 'GPU/ML workloads are outside the supported resource model.', filename, number, 'Use infrastructure designed for this workload.');
+      const modelPackage = '(?:torch|tensorflow|transformers|gpt4all|llama[-_]cpp(?:[-_]python)?)';
+      const modelImport = new RegExp(`^\\s*(?:from\\s+${modelPackage}(?:\\.|\\s)|import\\s+${modelPackage}(?:\\s|,|$))`, 'i').test(line);
+      const modelDependency = /(?:requirements\.txt|pyproject\.toml|package\.json)$/.test(filename) && new RegExp(`^\\s*["']?${modelPackage}(?=["'\\s\\[<=>!~;@,]|$)`, 'i').test(line);
+      if (modelImport || modelDependency || /(?:^|\s)--gpus(?:=|\s)/.test(line)) add('layout.ml', 'blocker', 'Local ML/model inference dependencies are outside the supported 256 MB app resource model, even on CPU.', filename, number, 'Use a hosted inference API or infrastructure sized for the model; do not load the model inside this app container.');
+      if (/\bmodel_path\s*=\s*["'][A-Za-z]:[\\/]/.test(line)) add('storage.model-path', 'blocker', 'A local model uses a Windows-only filesystem path unavailable inside the Linux app container.', filename, number, 'Move inference to an external service; a workstation model path cannot be mounted into deployed apps.');
       if (/multer|upload_to\s*=|MEDIA_ROOT|UPLOAD_DIR/.test(line)) add('storage.local-uploads', 'warning', 'Local upload storage may be lost when a container is replaced.', filename, number, 'Use external object storage; host mounts are not supported.');
     });
   }
@@ -148,7 +167,7 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
     const dockerfile = await file(repoDir, 'Dockerfile') ?? '';
     if (!dockerfile.includes('devflow_ca') && /npm |pip |apk |apt-get|https:/i.test(dockerfile)) add('tls.custom-dockerfile', 'warning', 'Repository Dockerfiles manage their own HTTPS certificate trust.', 'Dockerfile', 1, 'On TLS-inspected networks use the devflow_ca build secret, or choose a generated preset.');
   }
-  return summarize(findings, ownDockerfile ? 'Dockerfile' : detection?.stack ?? null, rule);
+  return summarize(findings, ownDockerfile ? 'Dockerfile' : detection?.stack ?? unsupportedFramework, rule);
 }
 export async function preflight(repoDir: string, settings: PreflightSettings, envNames: string[]): Promise<PreflightResult> {
   try { return await inspect(repoDir, settings, envNames); }

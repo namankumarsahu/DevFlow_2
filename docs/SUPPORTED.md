@@ -28,6 +28,12 @@ databases, paid accounts, buckets or credentials. Apps needing external services
 can be hosted after the owner provisions and configures them; preflight can
 verify names, never whether credentials actually work.
 
+Streamlit is recognized but has no generated recipe yet; provide a root Dockerfile
+that binds its production server to 0.0.0.0 and PORT. This does not make local LLM
+inference supported. GPT4All/llama.cpp models loaded on CPU still exceed the
+256 MB app budget; use external inference APIs instead. Comments mentioning
+CUDA and assignments to environment variables are not deployment requirements.
+
 Checks inspect at most 4 MB of source (256 KB per file) and report file/line evidence without source
 snippets or secret values. Fixed ports and explicit loopback binds are blockers
 when certain for a generated standalone Node server. Framework-controlled

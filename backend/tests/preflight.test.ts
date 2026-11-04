@@ -44,6 +44,30 @@ it('blocks strict missing Python configuration and warns about external services
   const result = await preflight(tmp, {}, []);
   expect(result.findings).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'env.missing.APP_SECRET', severity: 'blocker' }), expect.objectContaining({ id: 'service.redis', severity: 'warning' }), expect.objectContaining({ id: 'service.payments', severity: 'warning' })]));
 });
+it('does not mistake environment writes or GPU comments for deployment requirements', async () => {
+  await put('requirements.txt', 'flask\n# tensorflow is not installed\n');
+  await put('app.py', 'import os\nfrom flask import Flask\napp = Flask(__name__)\n# Force CPU only to avoid CUDA errors\nos.environ["LLAMA_CPP_FORCE_CPU"] = "1"\nsecret = os.environ["APP_SECRET"]\n');
+  const result = await preflight(tmp, {}, []);
+  expect(result.requiredEnv).toEqual(['APP_SECRET']);
+  expect(result.findings.map(f => f.id)).not.toContain('layout.ml');
+  expect((await preflight(tmp, {}, ['APP_SECRET'])).status).toBe('supported');
+});
+it('still treats environment comparisons and augmented assignments as reads', async () => {
+  await nodeApp('if (process.env.API_KEY === "test") {}\nprocess.env.WRITTEN = "value";');
+  await put('config.py', 'import os\nos.environ["SUFFIX"] += "suffix"\nif os.environ["MODE"] == "test": pass\n');
+  const result = await preflight(tmp, {}, []);
+  expect(result.requiredEnv).toEqual(['API_KEY', 'MODE', 'SUFFIX']);
+});
+it('allows HTTP apps calling hosted inference without labeling them local ML workloads', async () => {
+  await put('requirements.txt', 'fastapi\nrequests\n');
+  await put('main.py', 'from fastapi import FastAPI\nimport requests\napp = FastAPI()\n# An API service uses CUDA; this app does not load a model.\n');
+  expect((await preflight(tmp, {}, [])).status).toBe('supported');
+});
+it('recognizes a direct local model import even without a matching requirements entry', async () => {
+  await put('requirements.txt', 'flask\n');
+  await put('app.py', 'from flask import Flask\nimport gpt4all\napp = Flask(__name__)\n');
+  expect((await preflight(tmp, {}, [])).findings).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'layout.ml', severity: 'blocker', evidence: [{ file: 'app.py', line: 2 }] })]));
+});
 it('rejects compose multi-service, native and GPU workloads', async () => {
   await nodeApp('server.listen(process.env.PORT);');
   await put('docker-compose.yml', 'services:\n  web:\n    image: web\n  db:\n    image: postgres\n');
