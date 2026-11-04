@@ -16,6 +16,7 @@ export type AppSpec = NodeApp | PythonApp | StaticApp | FullstackApp;
 export type Detection<P = AppSpec> = { strategyId: StrategyId; stack: string; evidence: string[]; parameters: P };
 export type RenderContext = {
   port: number; limits: { memoryMb: number; cpus: number; diskMb: number };
+  healthPath?: string;
   startCommand?: string | null; buildCommand?: string | null;
 };
 // A future BuildpackStrategy can implement this interface and render a Dockerfile

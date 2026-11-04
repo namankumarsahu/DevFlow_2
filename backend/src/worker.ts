@@ -17,7 +17,8 @@ import { assertSafeRunArgs } from './lib/dockerSafety';
 import { assertSafeLimits, describeLimits, effectiveLimits, explainExit, limitsDiffer, OwnerRole, runLimitArgs } from './lib/limits';
 import { cleanupDeployment, classifyFailure, DeployCancelled, DeployTimeout } from './lib/deployCleanup';
 import { prepareBuild } from './lib/autobuild';
-import { preflight, summarize } from './lib/autobuild/preflight';
+import { summarize } from './lib/autobuild/preflight';
+import { analyzeDeployment } from './lib/autobuild/analyze';
 import { runReleaseCommands } from './lib/release';
 import { lookup } from 'dns/promises';
 import { checkImage } from './lib/imagePolicy';
@@ -212,8 +213,13 @@ export async function processDeployment(deploymentId: string) {
       const tooBig = checkRepoSize(await dirSizeBytes(workDir, config.maxRepoMb * 1024 * 1024), config.maxRepoMb);
       if (tooBig) throw new Error(tooBig);
       failureClass = 'preflight';
-      const requirements = await preflight(workDir, project, decrypted.map((v: { key: string }) => v.key));
+      const commit = (await capture('git', ['rev-parse', 'HEAD'], workDir)).trim();
+      const analysis = await analyzeDeployment(workDir, project, decrypted.map((v: { key: string }) => v.key), { port: project.containerPort, healthPath: config.healthPath, limits: effectiveLimits(project, ownerRole, config.maxLimits, config.defaultLimits) }, config.build.maxDockerfileKb * 1024, commit);
+      const requirements = analysis.report;
       await prisma.deployment.update({ where: { id: deploymentId }, data: { preflight: JSON.parse(JSON.stringify(requirements)), detectedStack: requirements.stack, buildRule: requirements.rule } });
+      const reviewedPlanId = (dep.preflight as { reviewedPlanId?: string } | null)?.reviewedPlanId;
+      if (reviewedPlanId && requirements.plan?.id !== reviewedPlanId) throw new Error('The repository revision, settings or effective policy changed after plan review. Run Requirements again before deploying.');
+      if (requirements.plan) await logger.log(`==> Deployment plan v${requirements.plan.version}: ${requirements.plan.id} (${requirements.plan.scope}; HTTP readiness only)`);
       await logger.log(`==> Requirements: ${requirements.status} — ${requirements.reason}`);
       for (const finding of requirements.findings) await logger.log(`==> ${finding.severity.toUpperCase()} ${finding.id}: ${finding.message} Fix: ${finding.fix}`);
       const actor = dep.preflightOverride && dep.triggeredById ? await prisma.user.findUnique({ where: { id: dep.triggeredById }, select: { role: true } }) : null;
@@ -225,9 +231,8 @@ export async function processDeployment(deploymentId: string) {
       if (actor?.role === 'ADMIN') await logger.log('==> Admin explicitly overrode requirements blockers; sandbox, quotas and runtime caps are unchanged');
       const plan = await prepareBuild(workDir, project, { port: project.containerPort, limits: effectiveLimits(project, ownerRole, config.maxLimits, config.defaultLimits) }, config.build.maxDockerfileKb * 1024, logger.log, async (meta) => {
         await prisma.deployment.update({ where: { id: deploymentId }, data: { buildRule: meta.rule, detectedStack: meta.stack ?? null } });
-      });
+      }, analysis.resolved);
       failureClass = 'build';
-      const commit = (await capture('git', ['rev-parse', 'HEAD'], workDir)).trim();
       imageTag = `devflow/${project.id}:${commit.slice(0, 12)}-${deploymentId.slice(0, 8)}`;
       await prisma.deployment.update({ where: { id: deploymentId }, data: { commitHash: commit, imageTag } });
       if (preview) {
@@ -268,6 +273,7 @@ export async function processDeployment(deploymentId: string) {
     const lines = [`PORT=${project.containerPort}`, `NODE_ENV=${project.environment.toLowerCase()}`];
     if (preview) lines.push('DEVFLOW_PREVIEW=1', `DEVFLOW_URL=${appUrl(preview.slug)}`, `DEVFLOW_PR_NUMBER=${preview.prNumber}`);
     decrypted.forEach((v: { key: string; value: string }) => lines.push(`${v.key}=${v.value}`));
+    lines.push(`PORT=${project.containerPort}`); // The reviewed project port owns the public listener.
     lines.push(`DEVFLOW_URL=${preview ? appUrl(preview.slug) : appUrl(project.slug ?? (await ensureSlug(project.id, project.name)))}`);
     // Trust the Caddy service and loopback only, never arbitrary forwarded headers.
     const proxies = await lookup('caddy', { all: true }).catch(() => []);

@@ -202,9 +202,9 @@ projectsRouter.delete('/:id', async (req, res) => {
 
 projectsRouter.post('/:id/deploy', deployBurstLimiter, async (req, res) => {
   const p = await getAccessibleProject(req, String(req.params.id));
-  const { overridePreflight } = z.object({ overridePreflight: z.boolean().optional().default(false) }).parse(req.body ?? {});
+  const { overridePreflight, planId } = z.object({ overridePreflight: z.boolean().optional().default(false), planId: z.string().regex(/^[a-f0-9]{64}$/).optional() }).parse(req.body ?? {});
   if (overridePreflight && req.user!.role !== 'ADMIN') throw new HttpError(403, 'Only admins can override preflight blockers');
-  res.status(202).json(await requestDeployment(p, req.user!.id, undefined, { overridePreflight }));
+  res.status(202).json(await requestDeployment(p, req.user!.id, undefined, { overridePreflight, planId }));
 });
 
 projectsRouter.get('/:id/deployments', async (req, res) => {

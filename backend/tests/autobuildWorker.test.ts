@@ -72,6 +72,15 @@ it('sends only the selected frontend context to the sandbox, without its sibling
   expect(build.args).toContain(`dockerfile=${path.join(tmp, 'deployment/frontend/.devflow')}`);
   expect(builtDockerfile).not.toContain('WORKDIR /app/backend');
 });
+it('stops changed reviewed plans before running BuildKit or switching the current version', async () => {
+  Object.assign(db.tables.project[0], { currentDeploymentId: 'old' });
+  Object.assign(db.tables.deployment[0], { preflight: { reviewedPlanId: '0'.repeat(64) } });
+  await processDeployment('deployment');
+  expect(result()).toMatchObject({ status: 'FAILED', failureClass: 'preflight' });
+  expect(result().error).toContain('changed after plan review');
+  expect(db.tables.project[0].currentDeploymentId).toBe('old');
+  expect((runProcess as jest.Mock).mock.calls.some(([o]) => o.cmd === 'buildctl')).toBe(false);
+});
 it('honors the preset override and leaves the repository Dockerfile unchanged', async () => {
   fixtureName = 'dockerfile'; Object.assign(db.tables.project[0], { preset: 'STATIC', buildMode: 'DOCKERFILE' });
   await processDeployment('deployment');

@@ -25,17 +25,18 @@ function pythonRuntime(app: PythonApp) {
 function packageSetup(n: NodeApp) {
   return n.manager === 'npm' ? '' : `(command -v corepack >/dev/null || npm install -g corepack --no-audit --no-fund) && corepack enable && corepack prepare ${n.managerVersion} --activate && `;
 }
-function nodeInstall(n: NodeApp, production: boolean) {
+export function nodeInstallCommand(n: NodeApp, production: boolean) {
   const locked = n.manifests.length > 1;
   const command = n.manager === 'npm' ? `npm ${locked ? 'ci' : 'install'}${production ? ' --omit=dev' : ''} --no-audit --no-fund`
     : n.manager === 'pnpm' ? `pnpm install${locked ? ' --frozen-lockfile' : ''}${production ? ' --prod' : ''}`
       : `YARN_NODE_LINKER=node-modules yarn install${locked ? n.managerVersion.startsWith('yarn@1.') ? ' --frozen-lockfile' : ' --immutable' : ''}${production && n.managerVersion.startsWith('yarn@1.') ? ' --production' : ''}`;
-  return install(packageSetup(n) + command);
+  return packageSetup(n) + command;
 }
-function nodeBuild(n: NodeApp, override?: string | null) {
+const nodeInstall = (n: NodeApp, production: boolean) => install(nodeInstallCommand(n, production));
+export function nodeBuild(n: NodeApp, override?: string | null) {
   return override ?? (n.hasBuild ? `${n.manager} run build` : null);
 }
-function nodeStart(n: NodeApp, override?: string | null) {
+export function nodeStart(n: NodeApp, override?: string | null) {
   if (override) return override;
   if (n.framework === 'next') return './node_modules/.bin/next start --hostname 0.0.0.0 --port "$PORT"';
   if (n.hasStart) return 'npm start';
@@ -90,17 +91,18 @@ function staticImage(app: StaticApp | NodeApp, ctx: RenderContext) {
   return lines;
 }
 
-function pythonStart(app: PythonApp, override?: string | null) {
+export function pythonStart(app: PythonApp, override?: string | null) {
   if (override) return override;
   return 'python3 /app/.devflow-runtime/launch.py';
 }
 function pythonDeps(app: PythonApp, destination: string) {
   const lines = [copy([at(app.root, app.manifest)], `${destination}/`)];
   if (app.manifest === 'pyproject.toml') lines.push(copy([app.root], `${destination}/`));
-  lines.push(install(`python3 -m venv /app/venv && /app/venv/bin/pip install --no-cache-dir ${app.manifest === 'requirements.txt' ? '-r requirements.txt' : '.'} ${app.server}${app.framework === 'django' ? ' whitenoise' : ''}`));
+  lines.push(install(pythonInstallCommand(app)));
   if (app.manifest !== 'pyproject.toml') lines.push(copy([app.root], `${destination}/`, '--chown=101:101 '));
   return lines;
 }
+export const pythonInstallCommand = (app: PythonApp) => `python3 -m venv /app/venv && /app/venv/bin/pip install --no-cache-dir ${app.manifest === 'requirements.txt' ? '-r requirements.txt' : '.'} ${app.server}${app.framework === 'django' ? ' whitenoise' : ''}`;
 function standalonePython(app: PythonApp, ctx: RenderContext) {
   return [
     'FROM python:3.12-slim', 'WORKDIR /app', home, `ENV PORT=${ctx.port} PATH=/app/venv/bin:$PATH NODE_EXTRA_CA_CERTS=/app/devflow-ca.pem SSL_CERT_FILE=/app/devflow-ca.pem`,

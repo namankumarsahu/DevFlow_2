@@ -25,7 +25,7 @@ export default function ProjectDetail() {
   const [ghToken, setGhToken] = useState('');
   const [buildForm, setBuildForm] = useState<BuildSettings>();
   const [buildSaved, setBuildSaved] = useState(false);
-  const [requirements, setRequirements] = useState({ ready: false, override: false });
+  const [requirements, setRequirements] = useState<{ ready: boolean; override: boolean; planId?: string }>({ ready: false, override: false });
   const usage = useUsage(3000);
 
   const refresh = useCallback(async () => {
@@ -47,7 +47,7 @@ export default function ProjectDetail() {
     try { await fn(); await refresh(); } catch (e) { setError((e as Error).message); }
   };
 
-  const deploy = () => act(async () => setSelected((await api<Deployment>(`/projects/${id}/deploy`, { method: 'POST', body: { overridePreflight: requirements.override } })).id));
+  const deploy = () => act(async () => setSelected((await api<Deployment>(`/projects/${id}/deploy`, { method: 'POST', body: { overridePreflight: requirements.override, planId: requirements.planId } })).id));
   const rollback = (d: Deployment) => act(async () => setSelected((await api<Deployment>(`/deployments/${d.id}/rollback`, { method: 'POST' })).id));
   const cancel = (d: Deployment) => act(() => api(`/deployments/${d.id}/cancel`, { method: 'POST' }));
 

@@ -51,6 +51,20 @@ it('permits an explicit admin override while keeping owner quotas', async () => 
   expect(response.status).toBe(202); expect(response.body.preflightOverride).toBe(true);
   expect(db.tables.deploymentAttempt).toHaveLength(1);
 });
+it('persists reviewed plan identity and rejects a different review before consuming an attempt', async () => {
+  (runProcess as jest.Mock).mockImplementation(async opts => {
+    const repo = opts.args.at(-1); await mkdir(repo, { recursive: true });
+    await writeFile(path.join(repo, 'package.json'), '{"scripts":{"start":"node server.js"}}');
+    await writeFile(path.join(repo, 'server.js'), 'server.listen(process.env.PORT,"0.0.0.0");');
+    return { outcome: 'ok', code: 0, pid: 1 };
+  });
+  const review = await request(app).post('/api/projects/project/preflight').set('Authorization', auth()).send({});
+  expect(review.body.plan).toMatchObject({ version: 1, scope: 'web-service', limits: { memoryMb: 256, cpus: 0.25 } });
+  const stale = await request(app).post('/api/projects/project/deploy').set('Authorization', auth()).send({ planId: '0'.repeat(64) });
+  expect(stale.status).toBe(409); expect(db.tables.deploymentAttempt).toHaveLength(0);
+  const deploy = await request(app).post('/api/projects/project/deploy').set('Authorization', auth()).send({ planId: review.body.plan.id });
+  expect(deploy.status).toBe(202); expect(deploy.body.preflight.reviewedPlanId).toBe(review.body.plan.id);
+});
 it('keeps access checks ahead of cloning and returns bounded-clone failures as findings', async () => {
   db.seedUser('other'); db.seedProject('private', 'other');
   expect((await request(app).post('/api/projects/private/preflight').set('Authorization', auth()).send({})).status).toBe(404);

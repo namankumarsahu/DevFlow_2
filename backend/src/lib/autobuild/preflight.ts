@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
-import { detect, detectPreset } from './index';
+import { detect, detectPreset } from './selection';
 import { entry, file, names } from './files';
-import { AppSpec, BuildSettings, Detection } from './types';
+import { AppSpec, BuildSettings, Detection, RenderContext } from './types';
 import { lintDockerfileAt } from '../dockerfileLint';
 import { SUPPORT_VERSION, SupportStatus } from './support';
 import { appRoot, normalizeRootDir } from './root';
@@ -16,8 +16,8 @@ export type PreflightResult = {
   rule: string; findings: Finding[]; requiredEnv: string[];
 };
 export type PreflightSettings = BuildSettings & { containerPort?: number; releaseCommand?: string | null; seedCommand?: string | null; rootDir?: string | null };
-export function preflightKey(project: PreflightSettings & { repoUrl?: string; branch?: string }, envNames: string[]) {
-  return createHash('sha256').update(JSON.stringify([SUPPORT_VERSION, project.repoUrl, project.branch, project.rootDir ?? null, project.buildMode ?? 'AUTO', project.preset ?? null, project.containerPort ?? 3000, project.startCommand ?? null, project.buildCommand ?? null, project.releaseCommand ?? null, project.seedCommand ?? null, [...envNames].sort()])).digest('hex');
+export function preflightKey(project: PreflightSettings & { repoUrl?: string; branch?: string }, envNames: string[], context?: RenderContext) {
+  return createHash('sha256').update(JSON.stringify([SUPPORT_VERSION, project.repoUrl, project.branch, project.rootDir ?? null, project.buildMode ?? 'AUTO', project.preset ?? null, project.containerPort ?? 3000, project.startCommand ?? null, project.buildCommand ?? null, project.releaseCommand ?? null, project.seedCommand ?? null, [...envNames].sort(), context])).digest('hex');
 }
 export function summarize(findings: Finding[], stack: string | null, rule: string): PreflightResult {
   const blockers = findings.filter((f) => f.severity === 'blocker');

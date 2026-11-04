@@ -8,8 +8,9 @@ import { assertCanDeploy, quotaApplies, recordAttempt, withUserLock } from './qu
 import { checkKnownRequirements } from './preflight';
 
 type RollbackSource = { id: string; imageTag: string; commitHash: string | null; detectedStack?: string | null; buildRule?: string | null };
+type DeployOptions = { previewId?: string; overridePreflight?: boolean; planId?: string };
 
-const deploymentData = (projectId: string, userId: string | null, rollback?: RollbackSource, opts: { previewId?: string; overridePreflight?: boolean } = {}) => ({
+const deploymentData = (projectId: string, userId: string | null, rollback?: RollbackSource, opts: DeployOptions = {}) => ({
   projectId,
   triggeredById: userId,
   status: 'QUEUED' as const,
@@ -20,6 +21,7 @@ const deploymentData = (projectId: string, userId: string | null, rollback?: Rol
   detectedStack: rollback?.detectedStack,
   buildRule: rollback?.buildRule,
   preflightOverride: opts.overridePreflight ?? false,
+  ...(opts.planId ? { preflight: { reviewedPlanId: opts.planId } } : {}),
 });
 
 // Hand a freshly created QUEUED row to the worker. If Redis is unreachable the row must not stay QUEUED forever
@@ -41,7 +43,7 @@ export async function enqueueDeployment(
   projectId: string,
   userId: string | null,
   rollback?: RollbackSource,
-  opts: { previewId?: string; overridePreflight?: boolean } = {},
+  opts: DeployOptions = {},
 ) {
   const deployment = await prisma.deployment.create({ data: deploymentData(projectId, userId, rollback, opts) });
   await dispatch(deployment);
@@ -52,8 +54,8 @@ export async function enqueueDeployment(
 // through here. In demo mode the quota checks and the new Deployment row happen in ONE transaction that holds a
 // lock on the project owner, so concurrent requests cannot exceed the limits. The quota belongs to the project
 // OWNER, whoever (or whatever webhook) triggers it.
-export async function requestDeployment(project: { id: string; ownerId: string }, actorId: string | null, rollback?: RollbackSource, opts: { overridePreflight?: boolean } = {}) {
-  await checkKnownRequirements(project, actorId, opts.overridePreflight);
+export async function requestDeployment(project: { id: string; ownerId: string }, actorId: string | null, rollback?: RollbackSource, opts: DeployOptions = {}) {
+  await checkKnownRequirements(project, actorId, opts.overridePreflight, opts.planId);
   if (!config.demo.enabled) return enqueueDeployment(project.id, actorId, rollback, opts);
   const deployment = await withUserLock(project.ownerId, async (tx, role) => {
     if (quotaApplies(role)) {
