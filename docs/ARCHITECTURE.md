@@ -81,6 +81,16 @@ Full definition: [`backend/prisma/schema.prisma`](../backend/prisma/schema.prism
 
 ## Auto-build strategies
 
+Phase 2 adds bounded read-only preflight (support.ts/preflight.ts) and a cached
+POST /projects/:id/preflight API. The dashboard requires a current check; the
+worker re-inspects its fresh clone and stores the report on each deployment.
+Only explicit admin overrides can bypass blockers, never sandbox or quota checks.
+Foreground release/seed containers run before serving/traffic switch using the
+unchanged app-run validator through a narrow entrypoint adapter. Outcomes and
+failure classes feed the admin build-reliability endpoint. See
+[SUPPORTED](SUPPORTED.md), [DATABASES](DATABASES.md) and
+[CONTRIBUTING-RECIPES](CONTRIBUTING-RECIPES.md) for contracts and limitations.
+
 `backend/src/lib/autobuild/` separates read-only detection, Dockerfile rendering,
 and build selection from the worker's unchanged deployment runner. Detection
 reads bounded files in the clone, refuses symlinks, and never imports repository

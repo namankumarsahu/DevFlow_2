@@ -8,6 +8,7 @@ export type NodeApp = {
 export type PythonApp = {
   kind: 'python'; root: string; framework: 'django' | 'flask' | 'fastapi';
   manifest: string; target: string; server: 'gunicorn' | 'uvicorn';
+  settingsModule?: string;
 };
 export type StaticApp = { kind: 'static'; root: string; output: string };
 export type FullstackApp = { kind: 'fullstack'; frontend: NodeApp | StaticApp; backend: NodeApp | PythonApp };

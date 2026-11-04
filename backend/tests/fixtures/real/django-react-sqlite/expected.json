@@ -1,0 +1,1 @@
+{"stack":"Frontend + Django","status":"supported-with-warnings","envNames":["DJANGO_SECRET_KEY"],"findings":["django.proxy","database.migrations","storage.sqlite"],"properties":["USER 101","devflow_runtime_settings","collectstatic","WhiteNoise","ca-certificates","DEVFLOW_BACKEND_PORT"]}

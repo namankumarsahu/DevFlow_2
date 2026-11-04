@@ -31,7 +31,7 @@ export async function detectPreset(repoDir: string, preset: Preset): Promise<Det
 // enforces exclusions even when the repository has permissive ! patterns.
 export const generatedExclusions = [
   '**/.git', '**/.env', '**/.env.*', '**/node_modules', '**/tests', '**/test', '**/__tests__',
-  '**/*.test.*', '**/*.spec.*', '**/test_*.py', '**/*_test.py', '**/.pytest_cache', '**/__pycache__',
+  '**/*.test.*', '**/*.spec.*', '**/test_*.py', '**/*_test.py', '**/tests.py', '**/conftest.py', '**/.pytest_cache', '**/__pycache__',
   '**/.venv', '**/venv', '**/.cache', '**/.devflow', '**/*.pem', '**/*.key',
 ].join('\n') + '\n';
 

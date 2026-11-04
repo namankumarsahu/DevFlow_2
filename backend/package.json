@@ -9,6 +9,8 @@
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "test": "jest --runInBand",
+    "test:fixtures": "jest --runInBand tests/recipes.test.ts",
+    "test:docker-fixtures": "npm run build && node scripts/docker-fixtures.cjs",
     "postinstall": "prisma generate"
   },
   "dependencies": {

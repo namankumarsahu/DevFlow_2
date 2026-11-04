@@ -5,6 +5,7 @@ export type Project = BuildSettings & {
   containerPort: number; memoryMb: number; cpus: number; diskMb: number; hostPort: number; slug: string | null; webhookSecret: string; currentDeploymentId: string | null;
   previewsEnabled: boolean; hasGithubToken: boolean;
   limits?: ProjectLimits;
+  rootDir?: string | null; preflightAt?: string | null; preflightKey?: string | null;
 };
 export type ProjectLimits = {
   requested: Limits; effective: Limits; applied: Limits | null; needsRedeploy: boolean; diskEnforced: boolean;
@@ -34,6 +35,7 @@ export type Deployment = {
   commitHash: string | null; url: string | null; durationMs: number | null; createdAt: string;
   rollbackOfId: string | null; error: string | null;
   detectedStack: string | null; buildRule: string | null;
+  failureClass?: string | null;
 };
 
 export const auth = {

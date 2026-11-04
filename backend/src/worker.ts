@@ -17,6 +17,9 @@ import { assertSafeRunArgs } from './lib/dockerSafety';
 import { assertSafeLimits, describeLimits, effectiveLimits, explainExit, limitsDiffer, OwnerRole, runLimitArgs } from './lib/limits';
 import { cleanupDeployment, classifyFailure, DeployCancelled, DeployTimeout } from './lib/deployCleanup';
 import { prepareBuild } from './lib/autobuild';
+import { preflight, summarize } from './lib/autobuild/preflight';
+import { runReleaseCommands } from './lib/release';
+import { lookup } from 'dns/promises';
 import { checkImage } from './lib/imagePolicy';
 import { createLogGate } from './lib/logGate';
 import { reapStaleDeployments, sweepWorkDir } from './lib/reaper';
@@ -167,6 +170,7 @@ export async function processDeployment(deploymentId: string) {
   let candidate: string | null = null;
   let switched = false;
   let failed = true;
+  let failureClass = 'clone';
 
   try {
     if (quotaApplies(ownerRole)) releaseUser = await acquireLock(`lock:user-build:${project.ownerId}`, config.deployTimeoutMs + 2 * 60 * 1000);
@@ -197,6 +201,7 @@ export async function processDeployment(deploymentId: string) {
     logger.setSecrets([...decrypted.map((v: { value: string }) => v.value), ...(project.githubTokenEnc ? [decrypt(project.githubTokenEnc)] : [])]);
     let imageTag = dep.imageTag;
     if (dep.rollbackOfId && imageTag) {
+      await prisma.deployment.update({ where: { id: deploymentId }, data: { preflight: JSON.parse(JSON.stringify(summarize([{ id: 'rollback.image', severity: 'info', message: 'Rollback reuses an existing image; repository inspection and release commands are skipped.', evidence: [{ file: '<image>', line: 1 }], fix: 'Use backward-compatible migrations and verify current environment requirements.' }], dep.detectedStack ?? 'Dockerfile', 'rollback'))) } });
       await logger.log(`==> Rollback: reusing image ${imageTag}`);
       await capture('docker', ['image', 'inspect', imageTag]).catch(() => {
         throw new Error('Image for the target deployment no longer exists (pruned?)');
@@ -206,9 +211,22 @@ export async function processDeployment(deploymentId: string) {
       await run(ctx, 'git', gitCloneArgs(branch, project.repoUrl, workDir), { extraEnv: GIT_ENV });
       const tooBig = checkRepoSize(await dirSizeBytes(workDir, config.maxRepoMb * 1024 * 1024), config.maxRepoMb);
       if (tooBig) throw new Error(tooBig);
+      failureClass = 'preflight';
+      const requirements = await preflight(workDir, project, decrypted.map((v: { key: string }) => v.key));
+      await prisma.deployment.update({ where: { id: deploymentId }, data: { preflight: JSON.parse(JSON.stringify(requirements)), detectedStack: requirements.stack, buildRule: requirements.rule } });
+      await logger.log(`==> Requirements: ${requirements.status} — ${requirements.reason}`);
+      for (const finding of requirements.findings) await logger.log(`==> ${finding.severity.toUpperCase()} ${finding.id}: ${finding.message} Fix: ${finding.fix}`);
+      const actor = dep.preflightOverride && dep.triggeredById ? await prisma.user.findUnique({ where: { id: dep.triggeredById }, select: { role: true } }) : null;
+      if (requirements.findings.some((f) => f.severity === 'blocker') && actor?.role !== 'ADMIN') {
+        if (!requirements.stack && requirements.rule === 'auto-detect') throw new Error('Could not auto-detect this repository. Supported stacks: static sites, Node, Django, Flask, FastAPI and fullstack. Pick a preset in project settings or add a Dockerfile.');
+        if (project.buildMode === 'DOCKERFILE' && requirements.findings.some((f) => f.id === 'layout.dockerfile')) throw new Error('Dockerfile rejected: No Dockerfile found at the repository root');
+        throw new Error('Requirements blocked: ' + requirements.findings.filter((f) => f.severity === 'blocker').map((f) => f.message).join('; '));
+      }
+      if (actor?.role === 'ADMIN') await logger.log('==> Admin explicitly overrode requirements blockers; sandbox, quotas and runtime caps are unchanged');
       const plan = await prepareBuild(workDir, project, { port: project.containerPort, limits: effectiveLimits(project, ownerRole, config.maxLimits, config.defaultLimits) }, config.build.maxDockerfileKb * 1024, logger.log, async (meta) => {
         await prisma.deployment.update({ where: { id: deploymentId }, data: { buildRule: meta.rule, detectedStack: meta.stack ?? null } });
       });
+      failureClass = 'build';
       const commit = (await capture('git', ['rev-parse', 'HEAD'], workDir)).trim();
       imageTag = `devflow/${project.id}:${commit.slice(0, 12)}-${deploymentId.slice(0, 8)}`;
       await prisma.deployment.update({ where: { id: deploymentId }, data: { commitHash: commit, imageTag } });
@@ -236,6 +254,7 @@ export async function processDeployment(deploymentId: string) {
     }
 
     // Reject oversized images and (in demo mode) images that declare VOLUMEs, which would bypass the disk limits.
+    failureClass = 'image-policy';
     const inspected = await capture('docker', ['image', 'inspect', imageTag!, '--format', '{{json .}}']).catch(() => '');
     const imageProblem = checkImage(inspected, { maxImageMb: config.build.maxImageMb, rejectVolumes: config.demo.enabled && ownerRole !== 'ADMIN' });
     if (imageProblem) {
@@ -249,6 +268,10 @@ export async function processDeployment(deploymentId: string) {
     const lines = [`PORT=${project.containerPort}`, `NODE_ENV=${project.environment.toLowerCase()}`];
     if (preview) lines.push('DEVFLOW_PREVIEW=1', `DEVFLOW_URL=${appUrl(preview.slug)}`, `DEVFLOW_PR_NUMBER=${preview.prNumber}`);
     decrypted.forEach((v: { key: string; value: string }) => lines.push(`${v.key}=${v.value}`));
+    lines.push(`DEVFLOW_URL=${preview ? appUrl(preview.slug) : appUrl(project.slug ?? (await ensureSlug(project.id, project.name)))}`);
+    // Trust the Caddy service and loopback only, never arbitrary forwarded headers.
+    const proxies = await lookup('caddy', { all: true }).catch(() => []);
+    lines.push(`DEVFLOW_TRUSTED_PROXIES=${['127.0.0.1', '::1', ...proxies.map((p) => p.address)].join(',')}`);
     // env-file (mode 0600, deleted afterwards) keeps secrets out of `ps` output and logs.
     await writeFile(envFile, lines.join('\n') + '\n', { mode: 0o600 });
 
@@ -261,6 +284,15 @@ export async function processDeployment(deploymentId: string) {
     const limits = effectiveLimits(requested, ownerRole, config.maxLimits, config.defaultLimits);
     assertSafeLimits(limits);
     const policy = { ...config.runtime, storageQuota: storageQuotaVerified };
+
+    if (!dep.rollbackOfId) {
+      failureClass = 'release';
+      await runReleaseCommands([project.releaseCommand, project.seedCommand], {
+        deploymentId, image: imageTag!, network: config.appsNetwork, envFile, limits: runLimitArgs(limits, policy),
+        run: (args) => run(ctx, 'docker', args), remove: async (name) => { await capture('docker', ['rm', '-f', name]); }, log: logger.log,
+      });
+    }
+    failureClass = 'health';
 
     // 1. Start the NEW version next to the old one (different container name). Old keeps serving.
     await logger.log(`==> Starting new container ${newName}${previousDeploymentId ? ' (previous version keeps serving)' : ''}`);
@@ -333,6 +365,7 @@ export async function processDeployment(deploymentId: string) {
       preview
         ? prisma.preview.update({ where: { id: preview.id }, data: { currentDeploymentId: id } })
         : prisma.project.update({ where: { id: project.id }, data: { currentDeploymentId: id } });
+    failureClass = 'routing';
     await setCurrent(deploymentId);
     try {
       await syncCaddy();
@@ -345,7 +378,7 @@ export async function processDeployment(deploymentId: string) {
     failed = false;
     await prisma.deployment.update({
       where: { id: deploymentId },
-      data: { status: 'SUCCESS', finishedAt: new Date(), durationMs: Date.now() - startedAt },
+      data: { status: 'SUCCESS', failureClass: null, finishedAt: new Date(), durationMs: Date.now() - startedAt },
     });
     await logger.log(`==> Live at ${url}`);
     await publishStatus(deploymentId, 'SUCCESS');
@@ -369,7 +402,7 @@ export async function processDeployment(deploymentId: string) {
     const status = reason === 'cancelled' ? 'CANCELLED' : 'FAILED';
     await prisma.deployment.update({
       where: { id: deploymentId },
-      data: { status, error: reason === 'cancelled' ? null : message, finishedAt: new Date(), durationMs: Date.now() - startedAt },
+      data: { status, failureClass: reason === 'failed' ? failureClass : reason, error: reason === 'cancelled' ? null : message, finishedAt: new Date(), durationMs: Date.now() - startedAt },
     });
     await publishStatus(deploymentId, status);
     if (preview && reason !== 'cancelled') {
@@ -377,6 +410,7 @@ export async function processDeployment(deploymentId: string) {
       await commentOnPr(project, preview.id, { state: 'failed', sha, error: message });
     }
   } finally {
+    for (const index of [0, 1]) if (!dep.rollbackOfId && (index === 0 ? project.releaseCommand : project.seedCommand)) await capture('docker', ['rm', '-f', `devflow-release-${deploymentId}-${index}`]).catch(() => undefined);
     // Temp files (clone, secrets env-file, image tarball), a leftover candidate container and the cancel flag.
     const problems = await cleanupDeployment(
       { candidateContainer: candidate, switched, paths: [workDir, envFile, imageTar], failed },

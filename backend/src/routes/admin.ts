@@ -7,9 +7,15 @@ import { effectiveLimits, limitsDiffer, OwnerRole } from '../lib/limits';
 import { authenticate, requireAdmin } from '../middleware/auth';
 import { enqueueDeployment, enqueueTeardown } from '../services/deployments';
 import { ACTIVE_STATUSES } from '../services/quota';
+import { buildReliability } from '../lib/reliability';
 
 export const adminRouter = Router();
 adminRouter.use(authenticate, requireAdmin);
+
+adminRouter.get('/build-reliability', async (_req, res) => {
+  const rows = await prisma.deployment.findMany({ where: { previewId: null }, orderBy: { createdAt: 'asc' }, select: { projectId: true, detectedStack: true, status: true, preflight: true, failureClass: true, createdAt: true } });
+  res.json({ stacks: buildReliability(rows), definition: 'First recorded project attempt; legacy uninspected rows and preflight-blocked attempts are excluded from the success denominator.' });
+});
 
 adminRouter.get('/stats', async (_req, res) => {
   const since = new Date(Date.now() - 7 * 24 * 3600 * 1000);

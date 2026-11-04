@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { stat } from 'fs/promises';
+import { dirSizeBytes } from './repoSize';
 
 // Run one child process with a hard deadline, cancellation and an optional output-file size cap.
 // The child is started in its OWN PROCESS GROUP and the whole group is killed, so helpers it spawned
@@ -16,6 +17,7 @@ export type RunOptions = {
   cancelPollMs?: number;
   // Kill the process when this file grows past maxBytes (e.g. the exported image tarball).
   watchFile?: { path: string; maxBytes: number };
+  watchDirectory?: { path: string; maxBytes: number };
   watchPollMs?: number;
   onOutput?: (chunk: string) => void;
 };
@@ -70,6 +72,17 @@ export function runProcess(o: RunOptions): Promise<RunResult> {
           /* file not created yet */
         }
       }, o.watchPollMs ?? 500);
+    }
+    if (o.watchDirectory) {
+      const directory = o.watchDirectory;
+      let checking = false;
+      interval(async () => {
+        if (checking || reason) return;
+        checking = true;
+        try { if (await dirSizeBytes(directory.path, directory.maxBytes) > directory.maxBytes) kill('too-large'); }
+        catch { /* clone may not have created the directory yet */ }
+        finally { checking = false; }
+      }, o.watchPollMs ?? 1000);
     }
     const stop = () => timers.forEach((t) => (clearTimeout(t), clearInterval(t)));
     const onData = (d: Buffer) => o.onOutput?.(d.toString());

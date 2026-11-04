@@ -79,6 +79,11 @@ model Project {
   preset              BuildPreset?
   startCommand        String?
   buildCommand        String?
+  releaseCommand      String?
+  seedCommand         String?
+  preflight           Json?
+  preflightAt         DateTime?
+  preflightKey        String?
   memoryMb            Int          @default(512) // Step 7: per-app limits, applied on the next deploy
   cpus                Float        @default(0.5)
   diskMb              Int          @default(1024) // enforced only when STORAGE_QUOTA=true
@@ -141,6 +146,9 @@ model Deployment {
   commitHash    String?
   detectedStack String?
   buildRule     String?
+  preflight     Json?
+  preflightOverride Boolean @default(false)
+  failureClass  String?
   imageTag      String?
   containerName String? // the docker container that serves this deployment (blue/green)
   url           String?

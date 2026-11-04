@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, Project } from '../api';
 import UsageBanner, { useUsage } from '../components/UsageBanner';
 import BuildFields, { defaultBuildSettings } from '../components/BuildFields';
 
 export default function Projects() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [form, setForm] = useState({ name: '', repoUrl: '', branch: 'main', environment: 'PRODUCTION', containerPort: 3000, ...defaultBuildSettings });
   const [error, setError] = useState('');
@@ -17,9 +18,10 @@ export default function Projects() {
     e.preventDefault();
     setError('');
     try {
-      await api('/projects', { method: 'POST', body: form });
+      const created = await api<Project>('/projects', { method: 'POST', body: form });
       setForm({ ...form, name: '', repoUrl: '' });
       load();
+      navigate(`/projects/${created.id}`);
     } catch (err) {
       setError((err as Error).message);
     }

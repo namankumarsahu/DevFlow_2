@@ -20,6 +20,7 @@ jest.mock('child_process', () => {
   return { execFile };
 });
 jest.mock('../src/lib/runProcess', () => ({ runProcess: jest.fn() }));
+jest.mock('dns/promises', () => ({ lookup: jest.fn(async () => [{ address: '172.20.0.2' }]) }));
 
 import { config } from '../src/config';
 import { db, redisValues } from './helpers/db';
@@ -81,4 +82,25 @@ it('refuses generation in explicit DOCKERFILE mode', async () => {
   await processDeployment('deployment');
   expect(result().status).toBe('FAILED'); expect(result().error).toContain('No Dockerfile found at the repository root');
   expect(builtDockerfile).toBe('');
+});
+
+it('runs release and seed before starting the serving container', async () => {
+  Object.assign(db.tables.project[0], { releaseCommand: 'echo migrate', seedCommand: 'echo seed' });
+  await processDeployment('deployment');
+  expect(result().status).toBe('SUCCESS');
+  const commands = (runProcess as jest.Mock).mock.calls.map(([o]) => o).filter((o) => o.cmd === 'docker' && o.args[0] === 'run');
+  expect(commands.slice(0, 2).map((o) => o.args.at(-1))).toEqual(['echo migrate', 'echo seed']);
+  expect(commands[2].args).toContain('-d');
+  expect(commands[0].timeoutMs).toBeLessThanOrEqual(config.deployTimeoutMs);
+});
+
+it.each(['failed', 'timeout'])('keeps the old version serving when release returns %s', async outcome => {
+  Object.assign(db.tables.project[0], { releaseCommand: 'echo migrate', currentDeploymentId: 'old' });
+  db.seedDeployment('old', 'project', 'SUCCESS', { createdAt: new Date(0) });
+  const original = (runProcess as jest.Mock).getMockImplementation()!;
+  (runProcess as jest.Mock).mockImplementation(async opts => opts.cmd === 'docker' && opts.args.includes('--entrypoint') ? { outcome, code: 1, pid: 123 } : original(opts));
+  await processDeployment('deployment');
+  expect(result()).toMatchObject({ status: 'FAILED', failureClass: outcome === 'timeout' ? 'timeout' : 'release' });
+  expect(db.tables.project[0].currentDeploymentId).toBe('old');
+  expect((runProcess as jest.Mock).mock.calls.some(([o]) => o.cmd === 'docker' && o.args[0] === 'run' && o.args.includes('-d'))).toBe(false);
 });

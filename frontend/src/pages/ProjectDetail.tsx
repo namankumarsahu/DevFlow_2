@@ -5,6 +5,7 @@ import LogViewer from '../components/LogViewer';
 import StatusBadge from '../components/StatusBadge';
 import UsageBanner, { useUsage } from '../components/UsageBanner';
 import BuildFields, { BuildSettings, defaultBuildSettings } from '../components/BuildFields';
+import Requirements from '../components/Requirements';
 
 const ACTIVE = ['QUEUED', 'BUILDING', 'DEPLOYING'];
 
@@ -24,6 +25,7 @@ export default function ProjectDetail() {
   const [ghToken, setGhToken] = useState('');
   const [buildForm, setBuildForm] = useState<BuildSettings>();
   const [buildSaved, setBuildSaved] = useState(false);
+  const [requirements, setRequirements] = useState({ ready: false, override: false });
   const usage = useUsage(3000);
 
   const refresh = useCallback(async () => {
@@ -45,7 +47,7 @@ export default function ProjectDetail() {
     try { await fn(); await refresh(); } catch (e) { setError((e as Error).message); }
   };
 
-  const deploy = () => act(async () => setSelected((await api<Deployment>(`/projects/${id}/deploy`, { method: 'POST' })).id));
+  const deploy = () => act(async () => setSelected((await api<Deployment>(`/projects/${id}/deploy`, { method: 'POST', body: { overridePreflight: requirements.override } })).id));
   const rollback = (d: Deployment) => act(async () => setSelected((await api<Deployment>(`/deployments/${d.id}/rollback`, { method: 'POST' })).id));
   const cancel = (d: Deployment) => act(() => api(`/deployments/${d.id}/cancel`, { method: 'POST' }));
 
@@ -58,7 +60,7 @@ export default function ProjectDetail() {
   // Fill the limits form once, from the first load of the project (the 3s refresh must not overwrite typing).
   useEffect(() => {
     if (project && !limitsForm) setLimitsForm({ memoryMb: project.memoryMb, cpus: project.cpus, diskMb: project.diskMb });
-    if (project && !buildForm) setBuildForm({ buildMode: project.buildMode ?? 'AUTO', preset: project.preset ?? null, startCommand: project.startCommand ?? null, buildCommand: project.buildCommand ?? null });
+    if (project && !buildForm) setBuildForm({ buildMode: project.buildMode ?? 'AUTO', preset: project.preset ?? null, startCommand: project.startCommand ?? null, buildCommand: project.buildCommand ?? null, releaseCommand: project.releaseCommand ?? null, seedCommand: project.seedCommand ?? null });
   }, [project, limitsForm, buildForm]);
 
   async function saveBuild(e: FormEvent) {
@@ -97,6 +99,7 @@ export default function ProjectDetail() {
 
   // Convenience only: the server enforces every one of these rules, whatever this page shows.
   const blockReason = (() => {
+    if (!requirements.ready) return 'Check and resolve project Requirements before deploying.';
     if (!usage?.enforced || !project) return null;
     const holdsSlot = usage.activeApps.projectIds.includes(project.id);
     if (usage.build.inFlight) return 'A deployment is already in progress. Wait for it to finish or cancel it.';
@@ -137,6 +140,7 @@ export default function ProjectDetail() {
       {error && <p className="text-sm text-rose-400">{error}</p>}
       {blockReason && <p className="rounded bg-amber-500/10 p-2 text-sm text-amber-200">{blockReason}</p>}
       <UsageBanner usage={usage} />
+      <Requirements project={project} envNames={envKeys.map((v) => v.key)} admin={!!limitsInfo?.adminsExceedMax} onState={setRequirements} onChanged={async () => { await refresh(); setEnvKeys(await api(`/projects/${id}/env`)); }} />
 
       <section id="build-settings" className="rounded-lg border border-slate-800 p-4">
         <h3 className="mb-3 font-semibold">Build settings</h3>
@@ -157,6 +161,7 @@ export default function ProjectDetail() {
               <tr key={d.id} className={`border-t border-slate-800 ${selected === d.id ? 'bg-slate-900' : ''}`}>
                 <td className="p-3">
                   <StatusBadge status={d.status} />
+                  {d.failureClass && <span className="ml-2 text-xs text-slate-500">{d.failureClass}</span>}
                   {d.rollbackOfId && <span className="ml-2 text-xs text-slate-500">rollback</span>}
                   {project.currentDeploymentId === d.id && <span className="ml-2 text-xs text-emerald-400">● current</span>}
                 </td>

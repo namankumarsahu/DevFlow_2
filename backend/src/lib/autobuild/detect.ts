@@ -30,7 +30,7 @@ export async function detectNode(repo: string, root = '.'): Promise<Detection | 
   const manager = found.includes('yarn.lock') ? 'yarn' : found.includes('pnpm-lock.yaml') ? 'pnpm' : 'npm';
   const requested = typeof pkg.packageManager === 'string' && /^(yarn|pnpm)@\d+\.\d+\.\d+$/.test(pkg.packageManager) ? pkg.packageManager : '';
   const modernYarn = (await file(repo, at(root, 'yarn.lock')))?.includes('__metadata:');
-  const managerVersion = requested.startsWith(manager + '@') ? requested : manager === 'pnpm' ? 'pnpm@9.15.9' : modernYarn ? 'yarn@4.5.3' : 'yarn@1.22.22';
+  const managerVersion = manager === 'npm' ? '' : requested.startsWith(manager + '@') ? requested : manager === 'pnpm' ? 'pnpm@9.15.9' : modernYarn ? 'yarn@4.5.3' : 'yarn@1.22.22';
   const major = /(?:^|[\s^~>=|])(22|24)(?:\D|$)/.exec(String(pkg.engines?.node ?? ''))?.[1] ?? '22';
   const main = typeof pkg.main === 'string' && /^[\w./-]+$/.test(pkg.main) && !pkg.main.split('/').includes('..') ? pkg.main : null;
   const parameters: NodeApp = {
@@ -70,6 +70,10 @@ export async function detectPython(repo: string, root = '.', force?: PythonApp['
   if (!candidate && framework === 'django') throw new Error(`No Django settings.py + wsgi.py module found in ${root}; add a Dockerfile with an explicit entry point`);
   if (!candidate) candidate = { framework, target: framework === 'fastapi' ? 'main:app' : 'app:app', evidence: at(root, framework === 'fastapi' ? 'main.py' : 'app.py') };
   const parameters: PythonApp = { kind: 'python', root, framework, manifest, target: candidate.target, server: framework === 'fastapi' ? 'uvicorn' : 'gunicorn' };
+  if (framework === 'django') {
+    const wsgi = await file(repo, candidate.evidence) ?? '';
+    parameters.settingsModule = /["']DJANGO_SETTINGS_MODULE["']\s*,\s*["']([\w.]+)["']/.exec(wsgi)?.[1] ?? candidate.target.split(':')[0].replace(/wsgi$/, 'settings');
+  }
   return { strategyId: 'python', stack: framework === 'django' ? 'Django' : framework === 'flask' ? 'Flask' : 'FastAPI', evidence: [at(root, manifest), candidate.evidence], parameters };
 }
 

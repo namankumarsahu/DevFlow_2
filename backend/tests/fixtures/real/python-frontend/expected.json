@@ -1,0 +1,1 @@
+{"stack":"Frontend + Flask","status":"supported","findings":[],"properties":["USER 101","ProxyFix","forwarded-allow-ips","ca-certificates","DEVFLOW_BACKEND_PORT"]}

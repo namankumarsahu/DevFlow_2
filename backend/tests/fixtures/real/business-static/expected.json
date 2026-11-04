@@ -1,0 +1,1 @@
+{"stack":"Static site","status":"supported","findings":[],"properties":["nginxinc/nginx-unprivileged","USER 101","ca-certificates","${PORT}"]}

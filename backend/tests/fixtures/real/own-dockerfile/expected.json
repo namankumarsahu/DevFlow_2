@@ -1,0 +1,1 @@
+{"stack":"Dockerfile","status":"supported","findings":[],"properties":["USER 65532","$PORT","--bind 0.0.0.0"]}

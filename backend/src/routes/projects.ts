@@ -14,6 +14,8 @@ import { enqueueTeardown, requestDeployment } from '../services/deployments';
 import { ACTIVE_STATUSES, getUsage, quotaApplies, withUserLock } from '../services/quota';
 import { deployBurstLimiter } from '../middleware/limiters';
 import { validCommand } from '../lib/autobuild/render';
+import { checkProject } from '../services/preflight';
+import { supportMatrix } from '../lib/autobuild/support';
 
 export const projectsRouter = Router();
 projectsRouter.use(authenticate);
@@ -42,6 +44,8 @@ const projectSchema = z.object({
   preset: z.enum(['STATIC', 'NODE', 'PYTHON_DJANGO', 'PYTHON_FLASK', 'PYTHON_FASTAPI', 'FULLSTACK']).nullable().default(null),
   startCommand: commandSchema.default(null),
   buildCommand: commandSchema.default(null),
+  releaseCommand: commandSchema.default(null),
+  seedCommand: commandSchema.default(null),
   // Step 7: resource limits. Upper bounds for non-admins are checked in assertWithinLimits().
   memoryMb: z.number().int().min(64).max(1_048_576).default(config.defaultLimits.memoryMb),
   cpus: z.number().min(0.1).max(64).default(config.defaultLimits.cpus),
@@ -158,6 +162,14 @@ projectsRouter.get('/', async (req, res) => {
   res.json((await prisma.project.findMany({ where, orderBy: { createdAt: 'desc' } })).map(publicProject));
 });
 
+projectsRouter.get('/support', (_req, res) => res.json(supportMatrix));
+
+const preflightLimiter = deployBurstLimiter; // same authenticated per-user burst limiter; clone concurrency is separately bounded.
+projectsRouter.post('/:id/preflight', preflightLimiter, async (req, res) => {
+  const project = await getAccessibleProject(req, String(req.params.id));
+  res.json(await checkProject(project, req.body?.force === true));
+});
+
 projectsRouter.get('/:id', async (req, res) => {
   res.json(await withLimits(await getAccessibleProject(req, req.params.id)));
 });
@@ -167,7 +179,7 @@ projectsRouter.patch('/:id', async (req, res) => {
   const data = projectSchema.partial().omit({ repoUrl: true }).parse(req.body);
   assertWithinLimits(req, data);
   assertPreviewsAllowed(req, data.previewsEnabled);
-  res.json(await withLimits(await prisma.project.update({ where: { id: req.params.id }, data })));
+  res.json(await withLimits(await prisma.project.update({ where: { id: req.params.id }, data: { ...data, preflightKey: null } })));
 });
 
 projectsRouter.delete('/:id', async (req, res) => {
@@ -188,7 +200,9 @@ projectsRouter.delete('/:id', async (req, res) => {
 
 projectsRouter.post('/:id/deploy', deployBurstLimiter, async (req, res) => {
   const p = await getAccessibleProject(req, String(req.params.id));
-  res.status(202).json(await requestDeployment(p, req.user!.id));
+  const { overridePreflight } = z.object({ overridePreflight: z.boolean().optional().default(false) }).parse(req.body ?? {});
+  if (overridePreflight && req.user!.role !== 'ADMIN') throw new HttpError(403, 'Only admins can override preflight blockers');
+  res.status(202).json(await requestDeployment(p, req.user!.id, undefined, { overridePreflight }));
 });
 
 projectsRouter.get('/:id/deployments', async (req, res) => {
@@ -224,12 +238,14 @@ projectsRouter.put('/:id/env', async (req, res) => {
     create: { projectId: p.id, key, valueEnc },
     update: { valueEnc },
   });
+  await prisma.project.update({ where: { id: p.id }, data: { preflightKey: null } });
   res.json({ key });
 });
 
 projectsRouter.delete('/:id/env/:key', async (req, res) => {
   const p = await getAccessibleProject(req, req.params.id);
   await prisma.envVar.deleteMany({ where: { projectId: p.id, key: req.params.key } });
+  await prisma.project.update({ where: { id: p.id }, data: { preflightKey: null } });
   res.status(204).end();
 });
 

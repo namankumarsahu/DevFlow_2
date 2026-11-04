@@ -49,6 +49,17 @@ Open http://localhost (apps appear at `http://<slug>.localhost`). In demo mode c
 
 ### Auto-build and overrides
 
+Projects now run a **Requirements** preflight before the dashboard enables
+Deploy. Review the support badge, file/line findings and required variable names;
+fix blockers or explicitly override them as an admin. The worker rechecks the
+actual clone. See the [official support matrix](docs/SUPPORTED.md),
+[database/release workflow](docs/DATABASES.md) and
+[recipe regression suite](docs/CONTRIBUTING-RECIPES.md).
+
+Optional release and seed commands run with the app image and resource caps
+before traffic switches. Persistent local app storage is not provided; use an
+external database/object store for durable data.
+
 Choose **Build type** when creating a project or under **Build settings**. The
 default is **Auto-detect**. A selected preset wins, even over a repository
 Dockerfile (with a warning). Otherwise an existing root Dockerfile is used
