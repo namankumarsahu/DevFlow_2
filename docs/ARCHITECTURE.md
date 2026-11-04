@@ -131,8 +131,10 @@ size checks, Docker run allow-list, health checks and quotas as supplied files.
 Deployment rows persist the detected stack and rule, including for failed
 detection. Existing projects default to AUTO; old deployments show “Not recorded”.
 Apply the additive Prisma schema with the existing `prisma db push` startup flow.
-The nullable legacy `Project.rootDir` column is preserved for existing databases;
-auto-build selection in this version uses the repository root.
+The nullable `Project.rootDir` selects a relative app folder. Preflight, Dockerfile
+selection and build context all use that folder; null selects the repository root.
+Paths outside the clone and symlink roots are rejected. Selecting frontend deploys
+only that frontend, without building or provisioning a sibling backend.
 
 To add a strategy, implement `BuildStrategy<P>` from `types.ts`: return stack,
 evidence and typed parameters from `detect(repoDir)`, then return a Dockerfile

@@ -4,6 +4,7 @@ import { lintDockerfile, lintDockerfileAt } from '../dockerfileLint';
 import { detectPython } from './detect';
 import { entry, file } from './files';
 import { strategies } from './registry';
+import { appRoot, normalizeRootDir } from './root';
 import { BuildPlan, BuildSettings, Detection, Preset, RenderContext, StrategyId } from './types';
 
 export const supported = 'Supported stacks: static sites, Node (Vite, CRA, Next.js, Express/Nest), Django, Flask, FastAPI, and frontend + backend monorepos. Pick a preset in project settings or add a Dockerfile.';
@@ -35,7 +36,9 @@ export const generatedExclusions = [
   '**/.venv', '**/venv', '**/.cache', '**/.devflow', '**/*.pem', '**/*.key',
 ].join('\n') + '\n';
 
-export async function prepareBuild(repoDir: string, settings: BuildSettings, ctx: RenderContext, maxBytes: number, log: (line: string) => Promise<void>, record: (meta: { rule: string; stack?: string }) => Promise<void> = async () => undefined): Promise<BuildPlan> {
+export async function prepareBuild(cloneDir: string, settings: BuildSettings, ctx: RenderContext, maxBytes: number, log: (line: string) => Promise<void>, record: (meta: { rule: string; stack?: string }) => Promise<void> = async () => undefined): Promise<BuildPlan> {
+  const repoDir = await appRoot(cloneDir, settings.rootDir);
+  if (normalizeRootDir(settings.rootDir) !== '.') await log(`==> Build root: ${normalizeRootDir(settings.rootDir)} (files outside this folder are excluded)`);
   let repoDockerfile = false;
   try { await lstat(path.join(repoDir, 'Dockerfile')); repoDockerfile = true; } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
   if (!settings.preset && (repoDockerfile || settings.buildMode === 'DOCKERFILE')) {
@@ -43,7 +46,7 @@ export async function prepareBuild(repoDir: string, settings: BuildSettings, ctx
     const problems = await lintDockerfileAt(repoDir, { maxBytes });
     if (problems.length) throw new Error(`Dockerfile rejected: ${problems.join('; ')}`);
     await log('==> Build rule: repo Dockerfile (used unchanged)');
-    return { rule: 'repo Dockerfile', stack: 'Dockerfile', evidence: ['Dockerfile'], dockerfileDir: repoDir, generated: false };
+    return { rule: 'repo Dockerfile', stack: 'Dockerfile', evidence: ['Dockerfile'], dockerfileDir: repoDir, contextDir: repoDir, generated: false };
   }
   const rule = settings.preset ? 'preset' : 'auto-detect';
   await record({ rule });
@@ -68,5 +71,5 @@ export async function prepareBuild(repoDir: string, settings: BuildSettings, ctx
   // Wrap long JSON instructions so the existing per-line log cap does not
   // truncate their content. Redaction and total log budgets still apply.
   await log(`==> Generated .devflow/Dockerfile (long lines wrapped):\n${text.split('\n').flatMap((line) => line.match(/.{1,1000}/g) ?? ['']).join('\n')}`);
-  return { rule, stack: detection.stack, evidence: detection.evidence, dockerfileDir: generatedDir, generated: true, warning };
+  return { rule, stack: detection.stack, evidence: detection.evidence, dockerfileDir: generatedDir, contextDir: repoDir, generated: true, warning };
 }

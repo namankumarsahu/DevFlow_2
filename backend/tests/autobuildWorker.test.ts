@@ -63,6 +63,15 @@ it('fails undetectable repositories before building, with the new actionable err
   expect(result().error).toMatch(/Could not auto-detect.*Pick a preset/);
   expect(builtDockerfile).toBe('');
 });
+it('sends only the selected frontend context to the sandbox, without its sibling backend', async () => {
+  fixtureName = 'fullstack'; Object.assign(db.tables.project[0], { rootDir: 'frontend' });
+  await processDeployment('deployment');
+  expect(result()).toMatchObject({ status: 'SUCCESS', detectedStack: 'Vite' });
+  const build = (runProcess as jest.Mock).mock.calls.map(([o]) => o).find(o => o.cmd === 'buildctl' && o.args.includes('build'));
+  expect(build.args).toContain(`context=${path.join(tmp, 'deployment/frontend')}`);
+  expect(build.args).toContain(`dockerfile=${path.join(tmp, 'deployment/frontend/.devflow')}`);
+  expect(builtDockerfile).not.toContain('WORKDIR /app/backend');
+});
 it('honors the preset override and leaves the repository Dockerfile unchanged', async () => {
   fixtureName = 'dockerfile'; Object.assign(db.tables.project[0], { preset: 'STATIC', buildMode: 'DOCKERFILE' });
   await processDeployment('deployment');

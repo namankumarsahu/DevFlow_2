@@ -16,3 +16,7 @@ are included.
 entry point imports a CPU-loaded GPT4All model from a Windows path. It preserves
 the environment write and CUDA comment that previously produced false positives.
 No model, credentials or production data are included or executed by preflight.
+
+`frontend-root` reduces business_card_scanner_contact_manager's saved frontend
+root regression: an unrelated database-dependent sibling must not be inspected,
+built, or sent in the selected frontend's build context.

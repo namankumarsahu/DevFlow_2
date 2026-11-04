@@ -5,7 +5,7 @@ export type Project = BuildSettings & {
   containerPort: number; memoryMb: number; cpus: number; diskMb: number; hostPort: number; slug: string | null; webhookSecret: string; currentDeploymentId: string | null;
   previewsEnabled: boolean; hasGithubToken: boolean;
   limits?: ProjectLimits;
-  rootDir?: string | null; preflightAt?: string | null; preflightKey?: string | null;
+  preflightAt?: string | null; preflightKey?: string | null;
 };
 export type ProjectLimits = {
   requested: Limits; effective: Limits; applied: Limits | null; needsRedeploy: boolean; diskEnforced: boolean;

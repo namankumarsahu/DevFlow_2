@@ -90,7 +90,7 @@ model Project {
   hostPort            Int          @unique
   slug                String?      @unique // subdomain: <slug>.<DOMAIN>
   webhookSecret       String
-  rootDir             String?      // Preserve the optional legacy column on existing installations.
+  rootDir             String?      // Relative app folder; null builds from the repository root.
   currentDeploymentId String?
   previewsEnabled     Boolean      @default(false) // Step 14: deploy every pull request to its own URL
   githubTokenEnc      String? // Step 14: encrypted token used only to comment on pull requests

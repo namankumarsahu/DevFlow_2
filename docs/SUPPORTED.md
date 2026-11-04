@@ -14,6 +14,12 @@ not a guarantee that arbitrary code, credentials or business features work.
 | Frontend + backend | Exactly one frontend/client/web and one backend/server/api; Vite/CRA/static frontend with supported Node/Python backend |
 | Own Dockerfile | One self-contained HTTP image; repository file stays unchanged unless a preset is explicitly selected |
 
+Root directory selects the app folder for both preflight and the build context.
+Leave it blank to detect the whole repository, including frontend/backend pairs.
+Set it to `frontend` to deploy only that folder; a sibling backend is excluded.
+Dockerfile precedence applies within the selected directory. Relative paths must
+exist inside the clone and cannot traverse parents or symlinks.
+
 Each preflight result includes a status and reason:
 
 - `supported`: a recognized layout with no known warnings or blockers.

@@ -4,6 +4,7 @@ import { entry, file, names } from './files';
 import { AppSpec, BuildSettings, Detection } from './types';
 import { lintDockerfileAt } from '../dockerfileLint';
 import { SUPPORT_VERSION, SupportStatus } from './support';
+import { appRoot, normalizeRootDir } from './root';
 
 export type Finding = {
   id: string; severity: 'blocker' | 'warning' | 'info'; message: string;
@@ -42,7 +43,6 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
   let detection: Detection | undefined;
   const ownDockerfile = !settings.preset && !!(await entry(repoDir, 'Dockerfile'));
   const rule = settings.preset ? 'preset' : ownDockerfile || settings.buildMode === 'DOCKERFILE' ? 'repo Dockerfile' : 'auto-detect';
-  if (settings.rootDir && settings.rootDir !== '.') add('layout.root-directory', 'warning', 'This version builds from the repository root; the legacy root directory field is not applied.', '<settings>', 1, 'Use a supported root layout, a preset, or a root Dockerfile with explicit paths.');
   try {
     if (ownDockerfile || !settings.preset && settings.buildMode === 'DOCKERFILE') {
       const problems = await lintDockerfileAt(repoDir, { maxBytes: 100 * 1024 });
@@ -170,6 +170,16 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
   return summarize(findings, ownDockerfile ? 'Dockerfile' : detection?.stack ?? unsupportedFramework, rule);
 }
 export async function preflight(repoDir: string, settings: PreflightSettings, envNames: string[]): Promise<PreflightResult> {
-  try { return await inspect(repoDir, settings, envNames); }
+  let selected: string;
+  try { selected = await appRoot(repoDir, settings.rootDir); }
+  catch { return summarize([{ id: 'layout.root-directory', severity: 'blocker', message: 'The selected root must be an existing folder inside the repository, without parent traversal or symlinks.', evidence: [{ file: '<settings>', line: 1 }], fix: 'Set Root directory to a repository folder such as frontend, or clear it to build the whole repository.' }], null, 'preflight'); }
+  try {
+    const result = await inspect(selected, settings, envNames);
+    const root = normalizeRootDir(settings.rootDir);
+    if (root !== '.') for (const finding of result.findings) for (const evidence of finding.evidence) {
+      if (!evidence.file.startsWith('<')) evidence.file = evidence.file === '.' ? root : `${root}/${evidence.file.replace(/^\.\//, '')}`;
+    }
+    return result;
+  }
   catch { return summarize([{ id: 'inspection.unsafe', severity: 'blocker', message: 'Files could not be inspected safely within the scan bounds.', evidence: [{ file: '.', line: 1 }], fix: 'Remove symlinks, oversized manifests or ambiguous layouts, then check again.' }], null, 'preflight'); }
 }

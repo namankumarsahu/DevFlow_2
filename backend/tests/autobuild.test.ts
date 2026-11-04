@@ -22,6 +22,32 @@ const prepare = async (name: string, settings: BuildSettings = {}) => {
 };
 
 describe('auto-build detection and rendering', () => {
+  it('uses the selected frontend as both Dockerfile scope and build context', async () => {
+    await cp(fixture('fullstack'), tmp, { recursive: true });
+    await writeFile(path.join(tmp, 'Dockerfile'), 'FROM invalid-parent\n');
+    const plan = await prepareBuild(tmp, { rootDir: 'frontend' }, ctx, 100 * 1024, async () => undefined);
+    expect(plan.stack).toBe('Vite');
+    expect(plan.contextDir).toBe(path.join(tmp, 'frontend'));
+    expect(plan.dockerfileDir).toBe(path.join(tmp, 'frontend/.devflow'));
+    const text = await readFile(path.join(plan.dockerfileDir, 'Dockerfile'), 'utf8');
+    expect(text).toContain('COPY ["package.json","./"]');
+    expect(text).not.toContain('backend');
+  });
+  it('honors a Dockerfile inside the selected root unchanged', async () => {
+    await mkdir(path.join(tmp, 'web'));
+    const original = 'FROM node:22-alpine\nUSER node\nEXPOSE 3000\nCMD ["node","server.js"]\n';
+    await writeFile(path.join(tmp, 'web/Dockerfile'), original);
+    const plan = await prepareBuild(tmp, { rootDir: 'web' }, ctx, 100 * 1024, async () => undefined);
+    expect(plan).toMatchObject({ rule: 'repo Dockerfile', generated: false, contextDir: path.join(tmp, 'web'), dockerfileDir: path.join(tmp, 'web') });
+    expect(await readFile(path.join(plan.dockerfileDir, 'Dockerfile'), 'utf8')).toBe(original);
+  });
+  it.each(['../escape', '/tmp', 'C:/tmp', 'web/../../escape', 'web\\..\\escape', 'missing'])('refuses unsafe or missing selected roots: %s', async rootDir => {
+    await expect(prepareBuild(tmp, { rootDir }, ctx, 100 * 1024, async () => undefined)).rejects.toThrow(/root directory|Root directory/);
+  });
+  it('rejects a symlink selected root before creating a build plan', async () => {
+    await symlink('/tmp', path.join(tmp, 'web'));
+    await expect(prepareBuild(tmp, { rootDir: 'web' }, ctx, 100 * 1024, async () => undefined)).rejects.toThrow(/symlink/);
+  });
   it('keeps the strategy registry in priority order', () => expect(strategies.map((s) => s.id)).toEqual(['fullstack', 'node', 'python', 'static']));
   it.each([
     ['static', 'static', 'Static site'], ['vite', 'node', 'Vite'], ['express', 'node', 'Express'],

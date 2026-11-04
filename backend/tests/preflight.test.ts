@@ -18,6 +18,20 @@ it('catches Pocket fixed-port and loopback failures before a build', async () =>
   expect(result.status).toBe('unsupported');
   expect(result.findings).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'network.fixed-port', severity: 'blocker', action: { type: 'set-port', port: 4173 }, evidence: [{ file: 'server.js', line: 1 }] }), expect.objectContaining({ id: 'network.loopback', severity: 'blocker' })]));
 });
+it('scopes inspection to the selected app and reports repository-relative evidence', async () => {
+  await put('backend/requirements.txt', 'tensorflow\n');
+  await put('backend/config.py', 'import os\nsecret = os.environ["UNSELECTED_SECRET"]\n');
+  await put('frontend/package.json', '{"scripts":{"start":"node server.js"}}');
+  await put('frontend/server.js', 'server.listen(4173,"0.0.0.0");');
+  const result = await preflight(tmp, { rootDir: 'frontend' }, []);
+  expect(result.requiredEnv).toEqual([]);
+  expect(result.findings.map(f => f.id)).toEqual(['network.fixed-port']);
+  expect(result.findings[0].evidence).toEqual([{ file: 'frontend/server.js', line: 1 }]);
+});
+it.each(['../escape', '/tmp', 'C:/tmp', 'missing'])('blocks an invalid selected root before inspection: %s', async rootDir => {
+  await nodeApp('server.listen(process.env.PORT);');
+  expect(await preflight(tmp, { rootDir }, [])).toMatchObject({ status: 'unsupported', findings: [expect.objectContaining({ id: 'layout.root-directory', severity: 'blocker' })] });
+});
 it('accepts environment-driven listening and never executes code or uses the network', async () => {
   await nodeApp('throw new Error("MUST NOT EXECUTE"); server.listen(process.env.PORT, process.env.HOST);');
   const network = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network forbidden'));

@@ -60,7 +60,7 @@ export default function ProjectDetail() {
   // Fill the limits form once, from the first load of the project (the 3s refresh must not overwrite typing).
   useEffect(() => {
     if (project && !limitsForm) setLimitsForm({ memoryMb: project.memoryMb, cpus: project.cpus, diskMb: project.diskMb });
-    if (project && !buildForm) setBuildForm({ buildMode: project.buildMode ?? 'AUTO', preset: project.preset ?? null, startCommand: project.startCommand ?? null, buildCommand: project.buildCommand ?? null, releaseCommand: project.releaseCommand ?? null, seedCommand: project.seedCommand ?? null });
+    if (project && !buildForm) setBuildForm({ rootDir: project.rootDir ?? null, buildMode: project.buildMode ?? 'AUTO', preset: project.preset ?? null, startCommand: project.startCommand ?? null, buildCommand: project.buildCommand ?? null, releaseCommand: project.releaseCommand ?? null, seedCommand: project.seedCommand ?? null });
   }, [project, limitsForm, buildForm]);
 
   async function saveBuild(e: FormEvent) {

@@ -26,6 +26,17 @@ it('lets a demo user save presets and commands without widening resource limits'
   const bad = await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ ...settings, memoryMb: 512 });
   expect(bad.status).toBe(400);
 });
+it('preserves a selected root on create/update and can clear it', async () => {
+  const create = await request(app).post('/api/projects').set('Authorization', auth()).send({ name: 'Frontend', repoUrl: 'https://github.com/o/r', rootDir: 'frontend' });
+  expect(create.status).toBe(201); expect(create.body.rootDir).toBe('frontend');
+  const patch = await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ rootDir: 'apps/web' });
+  expect(patch.status).toBe(200); expect(patch.body.rootDir).toBe('apps/web');
+  const clear = await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ rootDir: null });
+  expect(clear.status).toBe(200); expect(clear.body.rootDir).toBeNull();
+});
+it.each(['../outside', '/tmp', 'C:/tmp', 'web/../backend', 'web\\backend', 'web\nbackend'])('rejects root traversal/absolute paths at the API: %s', async rootDir => {
+  expect((await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ rootDir })).status).toBe(400);
+});
 it.each(['a\nFROM evil', 'a\rRUN x', 'x\0y', 'x\x7fy', 'x\u2028y', 'x\u2029y', 'x'.repeat(1001), '  '])('validates commands on both create and update', async (value) => {
   const patch = await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ startCommand: value });
   expect(patch.status).toBe(400);

@@ -1,5 +1,5 @@
 // Single source of truth for the API, preflight classification and support docs.
-export const SUPPORT_VERSION = 3;
+export const SUPPORT_VERSION = 4;
 export const supportMatrix = {
   stacks: [
     { id: 'static', name: 'Static sites', layouts: 'index.html at root or dist/build/public/out' },

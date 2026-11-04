@@ -241,7 +241,7 @@ export async function processDeployment(deploymentId: string) {
           if (e instanceof DeployCancelled || e instanceof DeployTimeout) throw e;
           throw new Error(`Build sandbox unreachable at ${config.buildkitAddr}. Is the "buildkit" service running? (Set BUILD_SANDBOX=docker to fall back, unsafe for untrusted code.)`);
         });
-        await run(ctx, 'buildctl', buildctlArgs({ addr: config.buildkitAddr, contextDir: workDir, dockerfileDir: plan.dockerfileDir, imageTag, tarPath: imageTar }), {
+        await run(ctx, 'buildctl', buildctlArgs({ addr: config.buildkitAddr, contextDir: plan.contextDir ?? workDir, dockerfileDir: plan.dockerfileDir, imageTag, tarPath: imageTar }), {
           // The export is written on the worker's disk while the build runs: stop it if it outgrows the image limit.
           watchFile: { path: imageTar, maxBytes: config.build.maxImageMb * 1024 * 1024 },
         });
@@ -249,7 +249,7 @@ export async function processDeployment(deploymentId: string) {
         await run(ctx, 'docker', ['load', '-i', imageTar]);
         await rm(imageTar, { force: true });
       } else {
-        await run(ctx, 'docker', ['build', ...(plan.generated ? ['--secret', 'id=devflow_ca,src=/etc/ssl/certs/ca-certificates.crt', '-f', path.join(plan.dockerfileDir, 'Dockerfile')] : []), '-t', imageTag, workDir]);
+        await run(ctx, 'docker', ['build', ...(plan.generated ? ['--secret', 'id=devflow_ca,src=/etc/ssl/certs/ca-certificates.crt', '-f', path.join(plan.dockerfileDir, 'Dockerfile')] : []), '-t', imageTag, plan.contextDir ?? workDir]);
       }
     }
 

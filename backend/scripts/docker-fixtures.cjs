@@ -17,7 +17,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       if (!fixture.plan) { console.log(`SKIP ${name}: preflight blockers (expected unsupported fixture)`); continue; }
       const image = `devflow-fixture-${name}:phase2`;
       const secret = process.env.DEVFLOW_CA_BUNDLE;
-      await docker('build', ...(secret ? ['--secret', `id=devflow_ca,src=${secret}`] : []), '-f', path.join(fixture.plan.dockerfileDir, 'Dockerfile'), '-t', image, fixture.repo);
+      await docker('build', ...(secret ? ['--secret', `id=devflow_ca,src=${secret}`] : []), '-f', path.join(fixture.plan.dockerfileDir, 'Dockerfile'), '-t', image, fixture.plan.contextDir || fixture.repo);
       const { stdout } = await docker('image', 'inspect', image);
       const metadata = JSON.parse(stdout)[0];
       if (!metadata.Config.User || ['0', 'root'].includes(metadata.Config.User) || metadata.Size >= 1024 * 1024 * 1024) throw new Error('Image must be non-root and below 1 GB');
