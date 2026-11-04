@@ -66,3 +66,19 @@ Every app container is started with these flags (`backend/src/lib/limits.ts`):
 
 **Capacity planning.** Limits are per app and not summed. A blue/green deploy briefly runs two copies of an app. On a 2 GB t3.small, five 512 MB apps is already too many. Watch `docker stats`.
 **Apps that write files.** Apps that write outside `/tmp` (SQLite files, uploads) still work, but those writes are only capped when the disk quota is enabled.
+
+### HTTPS inspection and custom certificate authorities
+
+When a trusted enterprise proxy or antivirus inspects HTTPS, install its
+existing public root CA into the worker and BuildKit system trust stores and
+restart BuildKit to reload its CA cache. A certificate added to a running
+container survives a restart but must be installed again if that container is
+recreated. Provision it through a local image or read-only CA-bundle mount for
+long-term use. Do not disable Git or npm TLS verification.
+
+The worker offers `/etc/ssl/certs/ca-certificates.crt` to builds as the optional
+BuildKit secret `devflow_ca`. A target Dockerfile can opt in with
+`RUN --mount=type=secret,id=devflow_ca` and set `NODE_EXTRA_CA_CERTS` to that
+mounted file for npm downloads. This is a public CA bundle; application secrets
+and private keys are never forwarded. Runtime API clients may also need the
+same public trust bundle in their final image.

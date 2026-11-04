@@ -82,6 +82,10 @@ describe('buildctlArgs (Step 6)', () => {
     expect(allAfter(args, '--local')).toEqual(['context=/tmp/b/abc', 'dockerfile=/tmp/b/abc']);
     expect(after(args, '--output')).toBe('type=docker,name=devflow/p:abc,dest=/tmp/b/abc.image.tar');
   });
+  it('offers the public CA bundle without forwarding application secrets', () => {
+    expect(after(args, '--secret')).toBe('id=devflow_ca,src=/etc/ssl/certs/ca-certificates.crt');
+    expect(args.join(' ')).not.toMatch(/DATABASE_URL|JWT_SECRET|ENCRYPTION_KEY/);
+  });
 });
 
 describe('childEnv', () => {

@@ -8,6 +8,9 @@ export function buildctlArgs(o: BuildctlOpts): string[] {
   return [
     '--addr', o.addr,
     'build',
+    // Public CA certificates only. Dockerfiles can opt in with a BuildKit secret
+    // mount when the host uses an enterprise proxy or antivirus TLS inspection.
+    '--secret', 'id=devflow_ca,src=/etc/ssl/certs/ca-certificates.crt',
     '--frontend', 'dockerfile.v0',
     '--local', `context=${o.contextDir}`,
     '--local', `dockerfile=${o.contextDir}`,
