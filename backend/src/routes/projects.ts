@@ -13,6 +13,7 @@ import { authenticate } from '../middleware/auth';
 import { enqueueTeardown, requestDeployment } from '../services/deployments';
 import { ACTIVE_STATUSES, getUsage, quotaApplies, withUserLock } from '../services/quota';
 import { deployBurstLimiter } from '../middleware/limiters';
+import { validCommand } from '../lib/autobuild/render';
 
 export const projectsRouter = Router();
 projectsRouter.use(authenticate);
@@ -30,12 +31,17 @@ export function publicProject<T extends { githubTokenEnc?: string | null }>(p: T
 }
 
 // Strict allow-lists: values end up in `git clone`, so no flags / local paths / other hosts.
+const commandSchema = z.string().min(1).max(1000).refine((v) => validCommand(v) && !!v.trim(), 'Commands cannot contain newlines or control characters').nullable();
 const projectSchema = z.object({
   name: z.string().min(1).max(60),
   repoUrl: z.string().regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/, 'Must be https://github.com/<owner>/<repo>'),
   branch: z.string().regex(/^[\w][\w./-]*$/).max(100).default('main'),
   environment: z.enum(['DEVELOPMENT', 'STAGING', 'PRODUCTION']).default('PRODUCTION'),
   containerPort: z.number().int().min(1).max(65535).default(3000),
+  buildMode: z.enum(['AUTO', 'DOCKERFILE']).default('AUTO'),
+  preset: z.enum(['STATIC', 'NODE', 'PYTHON_DJANGO', 'PYTHON_FLASK', 'PYTHON_FASTAPI', 'FULLSTACK']).nullable().default(null),
+  startCommand: commandSchema.default(null),
+  buildCommand: commandSchema.default(null),
   // Step 7: resource limits. Upper bounds for non-admins are checked in assertWithinLimits().
   memoryMb: z.number().int().min(64).max(1_048_576).default(config.defaultLimits.memoryMb),
   cpus: z.number().min(0.1).max(64).default(config.defaultLimits.cpus),

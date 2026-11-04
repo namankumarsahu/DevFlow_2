@@ -2,10 +2,11 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, Project } from '../api';
 import UsageBanner, { useUsage } from '../components/UsageBanner';
+import BuildFields, { defaultBuildSettings } from '../components/BuildFields';
 
 export default function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [form, setForm] = useState({ name: '', repoUrl: '', branch: 'main', environment: 'PRODUCTION', containerPort: 3000 });
+  const [form, setForm] = useState({ name: '', repoUrl: '', branch: 'main', environment: 'PRODUCTION', containerPort: 3000, ...defaultBuildSettings });
   const [error, setError] = useState('');
   const usage = useUsage();
 
@@ -36,6 +37,7 @@ export default function Projects() {
           <option>DEVELOPMENT</option><option>STAGING</option><option>PRODUCTION</option>
         </select>
         <input className={input} type="number" title="Container port" value={form.containerPort} onChange={(e) => setForm({ ...form, containerPort: Number(e.target.value) })} />
+        <div className="md:col-span-6"><BuildFields value={form} onChange={(settings) => setForm({ ...form, ...settings })} /></div>
         <button className="rounded bg-indigo-600 py-2 text-sm font-medium hover:bg-indigo-500 md:col-span-6">Create project</button>
         {error && <p className="text-sm text-rose-400 md:col-span-6">{error}</p>}
       </form>

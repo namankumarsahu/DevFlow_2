@@ -4,6 +4,7 @@ import { api, Deployment, fmtDuration, Limits, LimitsInfo, Preview, Project } fr
 import LogViewer from '../components/LogViewer';
 import StatusBadge from '../components/StatusBadge';
 import UsageBanner, { useUsage } from '../components/UsageBanner';
+import BuildFields, { BuildSettings, defaultBuildSettings } from '../components/BuildFields';
 
 const ACTIVE = ['QUEUED', 'BUILDING', 'DEPLOYING'];
 
@@ -21,6 +22,8 @@ export default function ProjectDetail() {
   const [limitsSaved, setLimitsSaved] = useState(false);
   const [previews, setPreviews] = useState<Preview[]>([]);
   const [ghToken, setGhToken] = useState('');
+  const [buildForm, setBuildForm] = useState<BuildSettings>();
+  const [buildSaved, setBuildSaved] = useState(false);
   const usage = useUsage(3000);
 
   const refresh = useCallback(async () => {
@@ -55,7 +58,17 @@ export default function ProjectDetail() {
   // Fill the limits form once, from the first load of the project (the 3s refresh must not overwrite typing).
   useEffect(() => {
     if (project && !limitsForm) setLimitsForm({ memoryMb: project.memoryMb, cpus: project.cpus, diskMb: project.diskMb });
-  }, [project, limitsForm]);
+    if (project && !buildForm) setBuildForm({ buildMode: project.buildMode ?? 'AUTO', preset: project.preset ?? null, startCommand: project.startCommand ?? null, buildCommand: project.buildCommand ?? null });
+  }, [project, limitsForm, buildForm]);
+
+  async function saveBuild(e: FormEvent) {
+    e.preventDefault();
+    setError(''); setBuildSaved(false);
+    try {
+      await api(`/projects/${id}`, { method: 'PATCH', body: buildForm });
+      await refresh(); setBuildSaved(true);
+    } catch (e) { setError((e as Error).message); }
+  }
 
   async function saveLimits(e: FormEvent) {
     e.preventDefault();
@@ -125,10 +138,19 @@ export default function ProjectDetail() {
       {blockReason && <p className="rounded bg-amber-500/10 p-2 text-sm text-amber-200">{blockReason}</p>}
       <UsageBanner usage={usage} />
 
+      <section id="build-settings" className="rounded-lg border border-slate-800 p-4">
+        <h3 className="mb-3 font-semibold">Build settings</h3>
+        <form onSubmit={saveBuild} className="space-y-3">
+          <BuildFields value={buildForm ?? defaultBuildSettings} onChange={(settings) => { setBuildForm(settings); setBuildSaved(false); }} />
+          <button className="rounded bg-slate-700 px-3 py-1 text-sm">Save build settings</button>
+          {buildSaved && <span role="status" className="ml-3 text-sm text-emerald-400">Saved for the next deploy.</span>}
+        </form>
+      </section>
+
       <section className="overflow-x-auto rounded-lg border border-slate-800">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-900 text-xs uppercase text-slate-400">
-            <tr><th className="p-3">Status</th><th>Commit</th><th>Duration</th><th>URL</th><th>Started</th><th></th></tr>
+            <tr><th className="p-3">Status</th><th>Build</th><th>Commit</th><th>Duration</th><th>URL</th><th>Started</th><th></th></tr>
           </thead>
           <tbody>
             {deps.map((d) => (
@@ -137,6 +159,9 @@ export default function ProjectDetail() {
                   <StatusBadge status={d.status} />
                   {d.rollbackOfId && <span className="ml-2 text-xs text-slate-500">rollback</span>}
                   {project.currentDeploymentId === d.id && <span className="ml-2 text-xs text-emerald-400">● current</span>}
+                </td>
+                <td className="text-xs"><div>{d.detectedStack ?? '—'}</div><div className="text-slate-500">{d.buildRule ?? 'Not recorded'}</div>
+                  {d.status === 'FAILED' && <a href="#build-settings" className="text-indigo-400 hover:underline">Detection looks wrong? Change build type</a>}
                 </td>
                 <td className="font-mono text-xs">{d.commitHash?.slice(0, 7) ?? '—'}</td>
                 <td>{fmtDuration(d.durationMs)}</td>
@@ -151,7 +176,7 @@ export default function ProjectDetail() {
                 </td>
               </tr>
             ))}
-            {deps.length === 0 && <tr><td className="p-4 text-slate-500" colSpan={6}>No deployments yet.</td></tr>}
+            {deps.length === 0 && <tr><td className="p-4 text-slate-500" colSpan={7}>No deployments yet.</td></tr>}
           </tbody>
         </table>
       </section>

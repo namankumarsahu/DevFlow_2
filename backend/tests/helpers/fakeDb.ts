@@ -61,9 +61,16 @@ export class FakeDb {
         return out.slice(0, take ?? out.length).map((r) => ({ ...select(r, sel), ...(include?.owner ? { owner: { role: this.tables.user.find((u) => u.id === r.ownerId)?.role } } : {}) }));
       },
       findFirst: async (args: Row = {}) => (await this.model(name).findMany({ ...args, take: 1 }))[0] ?? null,
-      findUnique: async ({ where, select: sel }: Row) => {
+      findUnique: async ({ where, select: sel, include }: Row) => {
         const r = rows().find((x) => matches(x, where, this, name));
-        return r ? select(r, sel) : null;
+        if (!r) return null;
+        const result = select(r, sel);
+        if (include?.project) {
+          const project = this.tables.project.find((p) => p.id === r.projectId);
+          result.project = { ...project, owner: { role: this.tables.user.find((u) => u.id === project?.ownerId)?.role } };
+        }
+        if (include?.preview) result.preview = this.tables.preview.find((p) => p.id === r.previewId) ?? null;
+        return result;
       },
       count: async ({ where }: Row = {}) => rows().filter((r) => matches(r, where, this, name)).length,
       create: async ({ data }: Row) => {
@@ -157,7 +164,7 @@ export class FakeDb {
     return id;
   }
   seedProject(id: string, ownerId: string, extra: Row = {}) {
-    const row = { id, ownerId, name: id, repoUrl: 'https://github.com/o/r', branch: 'main', environment: 'PRODUCTION', containerPort: 3000, memoryMb: 256, cpus: 0.25, diskMb: 512, hostPort: 20000 + this.tables.project.length, slug: id, webhookSecret: 's', currentDeploymentId: null, previewsEnabled: false, githubTokenEnc: null, createdAt: new Date(), ...extra };
+    const row: Row = { id, ownerId, name: id, repoUrl: 'https://github.com/o/r', branch: 'main', environment: 'PRODUCTION', containerPort: 3000, memoryMb: 256, cpus: 0.25, diskMb: 512, hostPort: 20000 + this.tables.project.length, slug: id, webhookSecret: 's', currentDeploymentId: null, previewsEnabled: false, githubTokenEnc: null, createdAt: new Date(), ...extra };
     this.tables.project.push(row);
     return row;
   }

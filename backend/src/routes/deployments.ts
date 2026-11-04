@@ -38,6 +38,8 @@ deploymentsRouter.post('/:id/rollback', deployBurstLimiter, async (req, res) => 
     id: target.id,
     imageTag: target.imageTag,
     commitHash: target.commitHash,
+    detectedStack: target.detectedStack,
+    buildRule: target.buildRule,
   });
   res.status(202).json(d);
 });

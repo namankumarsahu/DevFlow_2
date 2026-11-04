@@ -2,7 +2,7 @@
 
 // The rootless BuildKit daemon runs in its own container, so the builds no longer run on the host's
 // Docker daemon. The worker only talks to it over the private `devflow_builds` network.
-export type BuildctlOpts = { addr: string; contextDir: string; imageTag: string; tarPath: string };
+export type BuildctlOpts = { addr: string; contextDir: string; dockerfileDir?: string; imageTag: string; tarPath: string };
 
 export function buildctlArgs(o: BuildctlOpts): string[] {
   return [
@@ -13,7 +13,7 @@ export function buildctlArgs(o: BuildctlOpts): string[] {
     '--secret', 'id=devflow_ca,src=/etc/ssl/certs/ca-certificates.crt',
     '--frontend', 'dockerfile.v0',
     '--local', `context=${o.contextDir}`,
-    '--local', `dockerfile=${o.contextDir}`,
+    '--local', `dockerfile=${o.dockerfileDir ?? o.contextDir}`,
     // Exported as a tarball and loaded into the app daemon afterwards, so no registry is needed yet.
     '--output', `type=docker,name=${o.imageTag},dest=${o.tarPath}`,
     '--progress', 'plain',

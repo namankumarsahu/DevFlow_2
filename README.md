@@ -45,7 +45,33 @@ docker compose up -d --build
 ```
 Open http://localhost (apps appear at `http://<slug>.localhost`). In demo mode create the admin with the command above; with `DEMO_MODE=false` the first registered account becomes admin. Then create a project and press **Deploy**.
 
-> The target repo needs a `Dockerfile` at its root that listens on `$PORT` (default 3000). Only public GitHub repos are supported.
+> Dockerfiles are optional. DevFlow auto-builds static sites, Node apps (Vite/CRA, Next.js, Express/Nest), Python apps (Django, Flask, FastAPI), and frontend + backend monorepos. Only public GitHub repos are supported. Apps must listen on `0.0.0.0:$PORT` (default 3000).
+
+### Auto-build and overrides
+
+Choose **Build type** when creating a project or under **Build settings**. The
+default is **Auto-detect**. A selected preset wins, even over a repository
+Dockerfile (with a warning). Otherwise an existing root Dockerfile is used
+unchanged; without one, Auto-detect tries fullstack, Node, Python, then static.
+**My own Dockerfile** requires that root file and never generates a replacement.
+
+Optional start and build commands run only inside Docker. Build command applies
+to a Node app or a monorepo's frontend; start command applies to its server.
+Generated files live only in the temporary clone's `.devflow/` directory. Build
+history and logs show the stack, evidence, parameters and precedence rule.
+
+Supported Python layouts have `requirements.txt` or a pip-installable
+`pyproject.toml` and a Django `settings.py`/`wsgi.py` pair, or a module-level
+Flask/FastAPI app. Monorepos use one of `frontend/`, `client/`, `web/` with one of
+`backend/`, `server/`, `api/`: a Vite/CRA/static frontend and a Node or supported
+Python backend. Databases stay external; configure their URLs in project env vars.
+
+Custom native OS dependencies, factory-only Python apps, unusual output folders,
+multiple competing app entry points, workspace-only dependency setups and SSR
+frontends paired with another backend may need a custom Dockerfile. Unsupported
+detection fails with the supported stack list and a link to choose a preset.
+Buildpacks are an extension point, not implemented yet. See
+[Auto-build architecture](docs/ARCHITECTURE.md#auto-build-strategies).
 
 ## Local development
 

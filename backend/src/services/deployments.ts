@@ -6,7 +6,7 @@ import { getQueue } from '../queue';
 import { getRedis } from '../redis';
 import { assertCanDeploy, quotaApplies, recordAttempt, withUserLock } from './quota';
 
-type RollbackSource = { id: string; imageTag: string; commitHash: string | null };
+type RollbackSource = { id: string; imageTag: string; commitHash: string | null; detectedStack?: string | null; buildRule?: string | null };
 
 const deploymentData = (projectId: string, userId: string | null, rollback?: RollbackSource, opts: { previewId?: string } = {}) => ({
   projectId,
@@ -16,6 +16,8 @@ const deploymentData = (projectId: string, userId: string | null, rollback?: Rol
   rollbackOfId: rollback?.id,
   imageTag: rollback?.imageTag,
   commitHash: rollback?.commitHash,
+  detectedStack: rollback?.detectedStack,
+  buildRule: rollback?.buildRule,
 });
 
 // Hand a freshly created QUEUED row to the worker. If Redis is unreachable the row must not stay QUEUED forever

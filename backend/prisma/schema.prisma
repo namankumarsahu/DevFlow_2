@@ -32,6 +32,20 @@ enum DeploymentStatus {
   CANCELLED
 }
 
+enum BuildMode {
+  AUTO
+  DOCKERFILE
+}
+
+enum BuildPreset {
+  STATIC
+  NODE
+  PYTHON_DJANGO
+  PYTHON_FLASK
+  PYTHON_FASTAPI
+  FULLSTACK
+}
+
 model User {
   id           String       @id @default(uuid())
   email        String       @unique
@@ -61,6 +75,10 @@ model Project {
   branch              String       @default("main")
   environment         Environment  @default(PRODUCTION)
   containerPort       Int          @default(3000)
+  buildMode           BuildMode    @default(AUTO)
+  preset              BuildPreset?
+  startCommand        String?
+  buildCommand        String?
   memoryMb            Int          @default(512) // Step 7: per-app limits, applied on the next deploy
   cpus                Float        @default(0.5)
   diskMb              Int          @default(1024) // enforced only when STORAGE_QUOTA=true
@@ -120,6 +138,8 @@ model Deployment {
   triggeredBy   User?            @relation(fields: [triggeredById], references: [id], onDelete: SetNull)
   status        DeploymentStatus @default(QUEUED)
   commitHash    String?
+  detectedStack String?
+  buildRule     String?
   imageTag      String?
   containerName String? // the docker container that serves this deployment (blue/green)
   url           String?

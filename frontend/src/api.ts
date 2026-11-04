@@ -1,5 +1,6 @@
 export type User = { id: string; email: string; role: 'USER' | 'ADMIN'; createdAt: string };
-export type Project = {
+import type { BuildSettings } from './components/BuildFields';
+export type Project = BuildSettings & {
   id: string; name: string; repoUrl: string; branch: string; environment: string;
   containerPort: number; memoryMb: number; cpus: number; diskMb: number; hostPort: number; slug: string | null; webhookSecret: string; currentDeploymentId: string | null;
   previewsEnabled: boolean; hasGithubToken: boolean;
@@ -32,6 +33,7 @@ export type Deployment = {
   id: string; status: 'QUEUED' | 'BUILDING' | 'DEPLOYING' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
   commitHash: string | null; url: string | null; durationMs: number | null; createdAt: string;
   rollbackOfId: string | null; error: string | null;
+  detectedStack: string | null; buildRule: string | null;
 };
 
 export const auth = {

@@ -38,7 +38,8 @@ sequenceDiagram
   Q->>W: job
   W->>W: acquire per-project lock
   W->>W: git clone --depth 1
-  W->>D: docker build
+  W->>W: select repo Dockerfile or detect and render .devflow/Dockerfile
+  W->>D: rootless BuildKit build, then docker load
   W->>D: docker rm -f old; docker run new (env-file)
   W->>W: verify container is running
   W->>API: (via Redis pub/sub) log lines + status
@@ -77,6 +78,64 @@ erDiagram
 ```
 
 Full definition: [`backend/prisma/schema.prisma`](../backend/prisma/schema.prisma).
+
+## Auto-build strategies
+
+`backend/src/lib/autobuild/` separates read-only detection, Dockerfile rendering,
+and build selection from the worker's unchanged deployment runner. Detection
+reads bounded files in the clone, refuses symlinks, and never imports repository
+code, executes scripts, installs packages or contacts the network.
+
+Selection order is explicit:
+
+1. A project preset wins, including over a root Dockerfile. Ignoring that file is logged.
+2. With no preset, an existing root Dockerfile is linted and used unchanged.
+3. Without a root Dockerfile, AUTO tries `fullstack`, `node`, `python`, then `static`.
+4. DOCKERFILE mode requires the root file and keeps the existing missing-file error.
+
+The presets are STATIC, NODE, PYTHON_DJANGO, PYTHON_FLASK, PYTHON_FASTAPI and
+FULLSTACK. The Python presets fix the server type rather than guessing it.
+Start/build commands are limited to 1000 characters, reject control characters,
+and enter JSON-array RUN/CMD instructions with JSON escaping. Commands are shell
+programs **inside the build/app container**, never on the worker host.
+
+Static sites use nginx-unprivileged with a runtime PORT template and SPA fallback.
+Node uses npm/yarn/pnpm lockfiles and frozen installs, builds when a build script
+exists, serves Vite/CRA output with nginx, and runs Next.js or a server start script.
+Node 22/24 Alpine images form the allow-list; matching engines select a version,
+otherwise Node 22 is used. Python uses Python 3.12 slim/alpine, pip, and a single
+gunicorn/uvicorn worker bound to the runtime PORT. Django WSGI modules and
+module-level Flask/FastAPI entry points are found by inspecting Python files.
+Monorepos combine a Vite/CRA/static frontend with a Node or supported Python
+backend, nginx API/WebSocket proxies, and a supervisor that exits on child death.
+No recipe starts a database; application database URLs come from project env vars.
+
+Generated Dockerfiles and their Dockerfile-specific ignore files are written to
+`<clone>/.devflow/`, never the source repository. BuildKit's context stays the
+clone while its `dockerfile` local points to `.devflow/`. The generated ignore
+file appends mandatory exclusions after repository ignore rules, keeping .env,
+.git, tests, host node_modules and private key files out of COPY operations.
+This uses [Dockerfile-specific ignore-file precedence](https://docs.docker.com/build/concepts/context/#dockerignore-files).
+Generated files receive the same linter, secret masking, build deadline, image
+size checks, Docker run allow-list, health checks and quotas as supplied files.
+Deployment rows persist the detected stack and rule, including for failed
+detection. Existing projects default to AUTO; old deployments show “Not recorded”.
+Apply the additive Prisma schema with the existing `prisma db push` startup flow.
+
+To add a strategy, implement `BuildStrategy<P>` from `types.ts`: return stack,
+evidence and typed parameters from `detect(repoDir)`, then return a Dockerfile
+from `render(detection, context)`. Add it to the priority-ordered registry. The
+worker consumes the resulting plan, so no worker or deployment-runner rewrite
+is needed. A future `BuildpackStrategy` can implement this same interface and
+render a container recipe running the buildpack lifecycle **inside BuildKit**;
+no buildpack detection or execution is implemented now.
+
+Complex workspaces, Python factories, custom/native system dependencies,
+unrecognized frontend output paths and multiple competing entry points need
+explicit commands, a supported preset/layout, or a repository Dockerfile. When
+no strategy matches, the error begins “Could not auto-detect this repository”,
+lists supported stacks, and tells the user to pick a preset or add a Dockerfile.
+Ambiguous layouts report the competing layout instead of silently guessing.
 
 ## Preview deployments (Step 14)
 

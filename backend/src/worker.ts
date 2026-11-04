@@ -16,7 +16,7 @@ import { CommentState, previewComment } from './lib/previews';
 import { assertSafeRunArgs } from './lib/dockerSafety';
 import { assertSafeLimits, describeLimits, effectiveLimits, explainExit, limitsDiffer, OwnerRole, runLimitArgs } from './lib/limits';
 import { cleanupDeployment, classifyFailure, DeployCancelled, DeployTimeout } from './lib/deployCleanup';
-import { lintDockerfileAt } from './lib/dockerfileLint';
+import { prepareBuild } from './lib/autobuild';
 import { checkImage } from './lib/imagePolicy';
 import { createLogGate } from './lib/logGate';
 import { reapStaleDeployments, sweepWorkDir } from './lib/reaper';
@@ -147,7 +147,7 @@ async function acquireLock(key: string, ttlMs = 30 * 60 * 1000) {
 // Set at startup: did docker prove that it really enforces --storage-opt size=? Never trust STORAGE_QUOTA alone.
 let storageQuotaVerified = false;
 
-async function processDeployment(deploymentId: string) {
+export async function processDeployment(deploymentId: string) {
   const dep = await prisma.deployment.findUnique({ where: { id: deploymentId }, include: { project: { include: { owner: { select: { role: true } } } }, preview: true } });
   if (!dep || dep.status !== 'QUEUED') return;
   const { project, preview } = dep;
@@ -191,6 +191,10 @@ async function processDeployment(deploymentId: string) {
     if (preview) await logger.log(`==> Preview for pull request #${preview.prNumber} (branch ${preview.branch})`);
     await logger.log(`==> Time budget: ${Math.round(config.deployTimeoutMs / 1000)}s for the whole deployment`);
 
+    // Set redaction before rendering/logging generated Dockerfiles or building.
+    const vars = await prisma.envVar.findMany({ where: { projectId: project.id } });
+    const decrypted = vars.map((v: { key: string; valueEnc: string }) => ({ key: v.key, value: decrypt(v.valueEnc) }));
+    logger.setSecrets([...decrypted.map((v: { value: string }) => v.value), ...(project.githubTokenEnc ? [decrypt(project.githubTokenEnc)] : [])]);
     let imageTag = dep.imageTag;
     if (dep.rollbackOfId && imageTag) {
       await logger.log(`==> Rollback: reusing image ${imageTag}`);
@@ -202,8 +206,9 @@ async function processDeployment(deploymentId: string) {
       await run(ctx, 'git', gitCloneArgs(branch, project.repoUrl, workDir), { extraEnv: GIT_ENV });
       const tooBig = checkRepoSize(await dirSizeBytes(workDir, config.maxRepoMb * 1024 * 1024), config.maxRepoMb);
       if (tooBig) throw new Error(tooBig);
-      const dockerfileProblems = await lintDockerfileAt(workDir, { maxBytes: config.build.maxDockerfileKb * 1024 });
-      if (dockerfileProblems.length) throw new Error(`Dockerfile rejected: ${dockerfileProblems.join('; ')}`);
+      const plan = await prepareBuild(workDir, project, { port: project.containerPort, limits: effectiveLimits(project, ownerRole, config.maxLimits, config.defaultLimits) }, config.build.maxDockerfileKb * 1024, logger.log, async (meta) => {
+        await prisma.deployment.update({ where: { id: deploymentId }, data: { buildRule: meta.rule, detectedStack: meta.stack ?? null } });
+      });
       const commit = (await capture('git', ['rev-parse', 'HEAD'], workDir)).trim();
       imageTag = `devflow/${project.id}:${commit.slice(0, 12)}-${deploymentId.slice(0, 8)}`;
       await prisma.deployment.update({ where: { id: deploymentId }, data: { commitHash: commit, imageTag } });
@@ -218,7 +223,7 @@ async function processDeployment(deploymentId: string) {
           if (e instanceof DeployCancelled || e instanceof DeployTimeout) throw e;
           throw new Error(`Build sandbox unreachable at ${config.buildkitAddr}. Is the "buildkit" service running? (Set BUILD_SANDBOX=docker to fall back, unsafe for untrusted code.)`);
         });
-        await run(ctx, 'buildctl', buildctlArgs({ addr: config.buildkitAddr, contextDir: workDir, imageTag, tarPath: imageTar }), {
+        await run(ctx, 'buildctl', buildctlArgs({ addr: config.buildkitAddr, contextDir: workDir, dockerfileDir: plan.dockerfileDir, imageTag, tarPath: imageTar }), {
           // The export is written on the worker's disk while the build runs: stop it if it outgrows the image limit.
           watchFile: { path: imageTar, maxBytes: config.build.maxImageMb * 1024 * 1024 },
         });
@@ -226,7 +231,7 @@ async function processDeployment(deploymentId: string) {
         await run(ctx, 'docker', ['load', '-i', imageTar]);
         await rm(imageTar, { force: true });
       } else {
-        await run(ctx, 'docker', ['build', '-t', imageTag, workDir]);
+        await run(ctx, 'docker', ['build', ...(plan.generated ? ['--secret', 'id=devflow_ca,src=/etc/ssl/certs/ca-certificates.crt', '-f', path.join(plan.dockerfileDir, 'Dockerfile')] : []), '-t', imageTag, workDir]);
       }
     }
 
@@ -240,10 +245,7 @@ async function processDeployment(deploymentId: string) {
     ensureTime(ctx);
 
     await setStatus(deploymentId, 'DEPLOYING');
-    const vars = await prisma.envVar.findMany({ where: { projectId: project.id } });
-    const decrypted = vars.map((v: { key: string; valueEnc: string }) => ({ key: v.key, value: decrypt(v.valueEnc) }));
     // Mask env values (and the PR-comment token) if the app or the build ever prints them.
-    logger.setSecrets([...decrypted.map((v: { value: string }) => v.value), ...(project.githubTokenEnc ? [decrypt(project.githubTokenEnc)] : [])]);
     const lines = [`PORT=${project.containerPort}`, `NODE_ENV=${project.environment.toLowerCase()}`];
     if (preview) lines.push('DEVFLOW_PREVIEW=1', `DEVFLOW_URL=${appUrl(preview.slug)}`, `DEVFLOW_PR_NUMBER=${preview.prNumber}`);
     decrypted.forEach((v: { key: string; value: string }) => lines.push(`${v.key}=${v.value}`));
