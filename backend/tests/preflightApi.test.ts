@@ -73,3 +73,15 @@ it('keeps access checks ahead of cloning and returns bounded-clone failures as f
   const response = await request(app).post('/api/projects/project/preflight').set('Authorization', auth()).send({});
   expect(response.body.findings[0]).toMatchObject({ id: 'repo.clone', severity: 'blocker' });
 });
+it.each([
+  { plan: { healthPath: '/ready', healthMode: 'readiness' } },
+  { rollbackHealthPath: '/ready', rollbackHealthMode: 'readiness' },
+])('allows rollback using recorded health settings even when the current repository preflight is blocked: %j', async recorded => {
+  await request(app).post('/api/projects/project/preflight').set('Authorization', auth()).send({});
+  db.seedDeployment('old', 'project', 'SUCCESS', { imageTag: 'devflow/project:old', preflight: recorded });
+  const response = await request(app).post('/api/deployments/old/rollback').set('Authorization', auth()).send({});
+  expect(response.status).toBe(202);
+  expect(response.body.preflight.rollbackHealthPath).toBe('/ready');
+  expect(response.body.preflight.rollbackHealthMode).toBe('readiness');
+  expect(db.tables.deploymentAttempt).toHaveLength(1);
+});

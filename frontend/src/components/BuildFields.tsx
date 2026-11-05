@@ -1,6 +1,6 @@
 export type BuildPreset = 'STATIC' | 'NODE' | 'PYTHON_DJANGO' | 'PYTHON_FLASK' | 'PYTHON_FASTAPI' | 'FULLSTACK';
-export type BuildSettings = { useRepositoryConfig: boolean; rootDir: string | null; entrypoint: string | null; buildMode: 'AUTO' | 'DOCKERFILE'; preset: BuildPreset | null; startCommand: string | null; buildCommand: string | null; releaseCommand: string | null; seedCommand: string | null };
-export const defaultBuildSettings: BuildSettings = { useRepositoryConfig: true, rootDir: null, entrypoint: null, buildMode: 'AUTO', preset: null, startCommand: null, buildCommand: null, releaseCommand: null, seedCommand: null };
+export type BuildSettings = { healthPath: string | null; useRepositoryConfig: boolean; rootDir: string | null; entrypoint: string | null; buildMode: 'AUTO' | 'DOCKERFILE'; preset: BuildPreset | null; startCommand: string | null; buildCommand: string | null; releaseCommand: string | null; seedCommand: string | null };
+export const defaultBuildSettings: BuildSettings = { healthPath: null, useRepositoryConfig: true, rootDir: null, entrypoint: null, buildMode: 'AUTO', preset: null, startCommand: null, buildCommand: null, releaseCommand: null, seedCommand: null };
 
 export default function BuildFields({ value, onChange }: { value: BuildSettings; onChange: (settings: BuildSettings) => void }) {
   const input = 'mt-1 w-full rounded bg-slate-900 px-3 py-2 text-sm';
@@ -28,6 +28,9 @@ export default function BuildFields({ value, onChange }: { value: BuildSettings;
       <label className="text-sm">Python entry point (optional)
         <input className={input} disabled={ownDockerfile} placeholder="e.g. main:app" maxLength={200} value={value.entrypoint ?? ''}
                onChange={(e) => onChange({ ...value, entrypoint: e.target.value || null })} />
+      </label>
+      <label className="text-sm">Health check path (optional)
+        <input className={input} placeholder="Inherited, usually /; e.g. /ready" maxLength={200} value={value.healthPath ?? ''} onChange={e => onChange({ ...value, healthPath: e.target.value || null })} />
       </label>
       <label className="text-sm">Build command (optional)
         <input className={input} disabled={ownDockerfile} placeholder="Use detected build command" maxLength={1000}

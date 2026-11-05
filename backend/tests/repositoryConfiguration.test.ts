@@ -78,3 +78,9 @@ it('offers multiple top-level Python objects from one module, including annotate
   const { report } = await analyzeDeployment(tmp, {}, [], ctx, 102400);
   expect(report.choices?.map(c => c.entrypoint)).toEqual(['main:first', 'main:second']);
 });
+it('resolves health paths from config and permits a dashboard override', async () => {
+  await config({ version: 1, healthPath: '/ready' }); await put('index.html', 'site');
+  expect((await analyzeDeployment(tmp, {}, [], ctx, 102400)).report.plan?.healthPath).toBe('/ready');
+  expect((await analyzeDeployment(tmp, {}, [], ctx, 102400)).report.plan?.healthMode).toBe('readiness');
+  expect((await analyzeDeployment(tmp, { healthPath: '/healthz' }, [], ctx, 102400)).report.plan?.healthPath).toBe('/healthz');
+});

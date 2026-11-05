@@ -1,0 +1,1 @@
+{"stack":"Node","status":"supported","findings":[],"properties":["yarn run build","ENV YARN_NODE_LINKER=node-modules","npm run start:prod","USER node"]}

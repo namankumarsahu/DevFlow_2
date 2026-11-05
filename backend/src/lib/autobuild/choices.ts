@@ -34,6 +34,8 @@ export async function entryChoices(repo: string): Promise<EntryChoice[]> {
       try {
         const detection = await detect(selected);
         const app = detection.parameters;
+        const parts = app.kind === 'fullstack' ? [app.frontend, app.backend] : [app];
+        if (parts.some(part => part.kind === 'node' && (part.workspaceLayout || part.workspaceDependencies))) continue;
         result.push({ label: `${root}: ${detection.stack}`, rootDir: root, preset: null, entrypoint: null,
           scope: app.kind === 'fullstack' ? 'Frontend and API in one container; external services remain separate.' : app.kind === 'static' || app.kind === 'node' && ['vite', 'cra'].includes(app.framework) ? 'Frontend only. A sibling API or database is excluded.' : 'Only this HTTP application; sibling applications are excluded.' });
       } catch {

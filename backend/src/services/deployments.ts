@@ -7,7 +7,7 @@ import { getRedis } from '../redis';
 import { assertCanDeploy, quotaApplies, recordAttempt, withUserLock } from './quota';
 import { checkKnownRequirements } from './preflight';
 
-type RollbackSource = { id: string; imageTag: string; commitHash: string | null; detectedStack?: string | null; buildRule?: string | null };
+type RollbackSource = { id: string; imageTag: string; commitHash: string | null; detectedStack?: string | null; buildRule?: string | null; healthPath?: string; healthMode?: 'readiness' | 'liveness' };
 type DeployOptions = { previewId?: string; overridePreflight?: boolean; planId?: string };
 
 const deploymentData = (projectId: string, userId: string | null, rollback?: RollbackSource, opts: DeployOptions = {}) => ({
@@ -21,7 +21,7 @@ const deploymentData = (projectId: string, userId: string | null, rollback?: Rol
   detectedStack: rollback?.detectedStack,
   buildRule: rollback?.buildRule,
   preflightOverride: opts.overridePreflight ?? false,
-  ...(opts.planId ? { preflight: { reviewedPlanId: opts.planId } } : {}),
+  ...(opts.planId || rollback?.healthPath ? { preflight: { ...(opts.planId ? { reviewedPlanId: opts.planId } : {}), ...(rollback?.healthPath ? { rollbackHealthPath: rollback.healthPath, rollbackHealthMode: rollback.healthMode ?? (rollback.healthPath === '/' ? 'liveness' : 'readiness') } : {}) } } : {}),
 });
 
 // Hand a freshly created QUEUED row to the worker. If Redis is unreachable the row must not stay QUEUED forever
@@ -55,7 +55,7 @@ export async function enqueueDeployment(
 // lock on the project owner, so concurrent requests cannot exceed the limits. The quota belongs to the project
 // OWNER, whoever (or whatever webhook) triggers it.
 export async function requestDeployment(project: { id: string; ownerId: string }, actorId: string | null, rollback?: RollbackSource, opts: DeployOptions = {}) {
-  await checkKnownRequirements(project, actorId, opts.overridePreflight, opts.planId);
+  if (!rollback) await checkKnownRequirements(project, actorId, opts.overridePreflight, opts.planId);
   if (!config.demo.enabled) return enqueueDeployment(project.id, actorId, rollback, opts);
   const deployment = await withUserLock(project.ownerId, async (tx, role) => {
     if (quotaApplies(role)) {

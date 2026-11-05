@@ -60,6 +60,29 @@ build-time environment configuration remain separate work.
 
 ## Following releases
 
+Compatibility and readiness implementation now includes production start-script
+selection, default Next.js scripts, explicit workspace limitations, bounded npm
+fetch retries, frontend build-variable warnings and per-project health paths.
+The Linux regression run passed 330 tests, fixture checks and both production
+builds. After the rollback-history correction, 25 focused checks and both builds
+passed again; all seven preflight API cases then passed, including rollback of
+a rollback. Tests retained their existing timeouts.
+
+The local API, worker and dashboard were updated after a verified PostgreSQL
+backup and the additive healthPath migration. The dashboard and authenticated
+plan API returned HTTP 200; the plan used strict static readiness and all 14
+legacy root-directory settings remained intact. Browser visual verification
+remains untested.
+
+Five synthetic Docker fixtures passed non-root/image-size/HTTP checks at
+256 MB and 0.25 CPU with PORT=3587: custom readiness, production-only Node,
+pnpm, Yarn and Next.js without scripts. The cold Next.js build exceeded the
+300-second limit after dependency installation took about 190 seconds; cached
+layers allowed the retry to pass. Yarn first hit a Corepack download timeout,
+then exposed a missing generated header in the synthetic lockfile. Correcting
+that fixture made the immutable build pass without relaxing lockfile checks.
+These results do not guarantee cold builds or complete business workflows.
+
 2. Compatibility corpus: full applications for each advertised framework, exact
 version/layout coverage, production startup adapters and real browser workflows.
 Evaluate maintained build tooling with sandbox/reproducibility proof first.

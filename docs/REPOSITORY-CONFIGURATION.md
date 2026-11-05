@@ -26,6 +26,7 @@ Allowed fields:
 | buildMode | AUTO or DOCKERFILE |
 | preset | STATIC, NODE, PYTHON_DJANGO, PYTHON_FLASK, PYTHON_FASTAPI, FULLSTACK, or null |
 | entrypoint | Detected module-level Python module:application, or null |
+| healthPath | Local HTTP readiness path such as /ready, or null |
 | buildCommand, startCommand | Optional nonempty commands, at most 1000 characters, or null |
 | releaseCommand, seedCommand | Optional one-off runtime commands under existing policy, or null |
 
@@ -74,6 +75,17 @@ and reviewed/resolved IDs. Old records without plans are labeled as such. A
 failed build's recorded plan is not evidence that the application ran.
 
 ## Additive database update
+
+Explicit health paths require consecutive HTTP 2xx responses. Default generic
+API checks retain legacy HTTP availability behavior (responses below 500), so
+an API without a root route remains compatible. Static and cohosted sites use
+strict readiness. These checks do not verify login, databases or other workflows.
+Rollback retains the target deployment's recorded health path and mode when
+available, even if the current repository no longer passes preflight.
+
+For health-path settings, also apply
+prisma/changes/20261105_project_health_path.sql before the new client starts.
+This adds only a nullable healthPath column; null preserves existing behavior.
 
 Back up PostgreSQL, then apply prisma/changes/20261105_repository_configuration.sql
 with psql ON_ERROR_STOP enabled before deploying the regenerated client. The

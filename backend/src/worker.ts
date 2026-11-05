@@ -19,6 +19,7 @@ import { cleanupDeployment, classifyFailure, DeployCancelled, DeployTimeout } fr
 import { prepareBuild } from './lib/autobuild';
 import { summarize } from './lib/autobuild/preflight';
 import { analyzeDeployment } from './lib/autobuild/analyze';
+import { validHealthPath } from './lib/autobuild/configuration';
 import { runReleaseCommands } from './lib/release';
 import { lookup } from 'dns/promises';
 import { checkImage } from './lib/imagePolicy';
@@ -173,6 +174,14 @@ export async function processDeployment(deploymentId: string) {
   let failed = true;
   let failureClass = 'clone';
   let releaseCommands = [project.releaseCommand, project.seedCommand];
+  let healthPath = project.healthPath ?? config.healthPath;
+  let healthMode: 'readiness' | 'liveness' = project.healthPath != null || healthPath !== '/' ? 'readiness' : 'liveness';
+  const savedHealthPath = (dep.preflight as { rollbackHealthPath?: unknown } | null)?.rollbackHealthPath;
+  if (dep.rollbackOfId && typeof savedHealthPath === 'string' && validHealthPath(savedHealthPath)) {
+    healthPath = savedHealthPath;
+    const mode = (dep.preflight as { rollbackHealthMode?: unknown } | null)?.rollbackHealthMode;
+    healthMode = mode === 'readiness' || mode === 'liveness' ? mode : healthPath === '/' ? 'liveness' : 'readiness';
+  }
 
   try {
     if (quotaApplies(ownerRole)) releaseUser = await acquireLock(`lock:user-build:${project.ownerId}`, config.deployTimeoutMs + 2 * 60 * 1000);
@@ -203,7 +212,8 @@ export async function processDeployment(deploymentId: string) {
     logger.setSecrets([...decrypted.map((v: { value: string }) => v.value), ...(project.githubTokenEnc ? [decrypt(project.githubTokenEnc)] : [])]);
     let imageTag = dep.imageTag;
     if (dep.rollbackOfId && imageTag) {
-      await prisma.deployment.update({ where: { id: deploymentId }, data: { preflight: JSON.parse(JSON.stringify(summarize([{ id: 'rollback.image', severity: 'info', message: 'Rollback reuses an existing image; repository inspection and release commands are skipped.', evidence: [{ file: '<image>', line: 1 }], fix: 'Use backward-compatible migrations and verify current environment requirements.' }], dep.detectedStack ?? 'Dockerfile', 'rollback'))) } });
+      const rollbackReport = summarize([{ id: 'rollback.image', severity: 'info' as const, message: 'Rollback reuses an existing image; repository inspection and release commands are skipped.', evidence: [{ file: '<image>', line: 1 }], fix: 'Use backward-compatible migrations and verify current environment requirements.' }], dep.detectedStack ?? 'Dockerfile', 'rollback');
+      await prisma.deployment.update({ where: { id: deploymentId }, data: { preflight: JSON.parse(JSON.stringify({ ...rollbackReport, rollbackHealthPath: healthPath, rollbackHealthMode: healthMode })) } });
       await logger.log(`==> Rollback: reusing image ${imageTag}`);
       await capture('docker', ['image', 'inspect', imageTag]).catch(() => {
         throw new Error('Image for the target deployment no longer exists (pruned?)');
@@ -218,10 +228,12 @@ export async function processDeployment(deploymentId: string) {
       const analysis = await analyzeDeployment(workDir, project, decrypted.map((v: { key: string }) => v.key), { port: project.containerPort, healthPath: config.healthPath, limits: effectiveLimits(project, ownerRole, config.maxLimits, config.defaultLimits) }, config.build.maxDockerfileKb * 1024, commit);
       const requirements = analysis.report;
       if (analysis.resolved) releaseCommands = [analysis.resolved.settings.releaseCommand ?? null, analysis.resolved.settings.seedCommand ?? null];
+      if (analysis.resolved) healthPath = analysis.resolved.plan.healthPath;
+      if (analysis.resolved) healthMode = analysis.resolved.plan.healthMode;
       const reviewedPlanId = (dep.preflight as { reviewedPlanId?: string } | null)?.reviewedPlanId;
       await prisma.deployment.update({ where: { id: deploymentId }, data: { preflight: JSON.parse(JSON.stringify({ ...requirements, ...(reviewedPlanId ? { reviewedPlanId } : {}) })), detectedStack: requirements.stack, buildRule: requirements.rule } });
       if (reviewedPlanId && requirements.plan?.id !== reviewedPlanId) throw new Error('The repository revision, settings or effective policy changed after plan review. Run Requirements again before deploying.');
-      if (requirements.plan) await logger.log(`==> Deployment plan v${requirements.plan.version}: ${requirements.plan.id} (${requirements.plan.scope}; HTTP readiness only)`);
+      if (requirements.plan) await logger.log(`==> Deployment plan v${requirements.plan.version}: ${requirements.plan.id} (${requirements.plan.scope}; ${requirements.plan.healthMode})`);
       await logger.log(`==> Requirements: ${requirements.status} — ${requirements.reason}`);
       for (const finding of requirements.findings) await logger.log(`==> ${finding.severity.toUpperCase()} ${finding.id}: ${finding.message} Fix: ${finding.fix}`);
       const actor = dep.preflightOverride && dep.triggeredById ? await prisma.user.findUnique({ where: { id: dep.triggeredById }, select: { role: true } }) : null;
@@ -327,10 +339,11 @@ export async function processDeployment(deploymentId: string) {
 
     // 2. Wait until it really answers HTTP. If it never does, the old version is untouched.
     const healthBudget = Math.min(config.healthTimeoutMs, Math.max(1000, timeLeft(ctx)));
-    await logger.log(`==> Health check: GET ${config.healthPath} on port ${project.containerPort} (up to ${Math.round(healthBudget / 1000)}s)`);
+    await logger.log(`==> Health check: GET ${healthPath} on port ${project.containerPort} (up to ${Math.round(healthBudget / 1000)}s)`);
     let lastLogged = 0;
     const health = await waitHealthy({
-      probe: () => httpProbe(newName, project.containerPort, config.healthPath),
+      probe: () => httpProbe(newName, project.containerPort, healthPath),
+      acceptStatus: status => healthMode === 'readiness' ? status >= 200 && status < 300 : status < 500,
       isAlive: async () => (await capture('docker', ['inspect', '-f', '{{.State.Running}}', newName]).catch(() => 'false')).trim() === 'true',
       shouldAbort: async () => !!(await getRedis().get(`cancel:${deploymentId}`)),
       timeoutMs: healthBudget,
@@ -351,7 +364,7 @@ export async function processDeployment(deploymentId: string) {
           ? `the container exited${explainExit(exitInfo, limits.memoryMb) ? `: ${explainExit(exitInfo, limits.memoryMb)}` : ''}`
           : health.lastStatus === null
             ? `nothing answered on port ${project.containerPort} within ${Math.round(healthBudget / 1000)}s (is the app listening on $PORT?)`
-            : `it kept returning HTTP ${health.lastStatus} on ${config.healthPath}`;
+            : `it kept returning HTTP ${health.lastStatus} on ${healthPath}`;
       if (health.reason === 'timeout' && timeLeft(ctx) <= 0) throw timeoutError();
       throw new Error(`New version failed its health check: ${why}.${previousDeploymentId ? ' The previous version is still serving traffic.' : ''}`);
     }

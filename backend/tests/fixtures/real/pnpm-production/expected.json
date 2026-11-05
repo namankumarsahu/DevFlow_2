@@ -1,0 +1,1 @@
+{"stack":"Node","status":"supported","findings":[],"properties":["pnpm install --frozen-lockfile","pnpm run build","npm run start:prod","USER node"]}

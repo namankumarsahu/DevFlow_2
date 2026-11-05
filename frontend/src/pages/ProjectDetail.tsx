@@ -60,9 +60,9 @@ export default function ProjectDetail() {
   // Fill the limits form once, from the first load of the project (the 3s refresh must not overwrite typing).
   useEffect(() => {
     if (project && !limitsForm) setLimitsForm({ memoryMb: project.memoryMb, cpus: project.cpus, diskMb: project.diskMb });
-    if (project && !buildForm) setBuildForm({ useRepositoryConfig: project.useRepositoryConfig ?? true, rootDir: project.rootDir ?? null, entrypoint: project.entrypoint ?? null, buildMode: project.buildMode ?? 'AUTO', preset: project.preset ?? null, startCommand: project.startCommand ?? null, buildCommand: project.buildCommand ?? null, releaseCommand: project.releaseCommand ?? null, seedCommand: project.seedCommand ?? null });
+    if (project && !buildForm) setBuildForm({ healthPath: project.healthPath ?? null, useRepositoryConfig: project.useRepositoryConfig ?? true, rootDir: project.rootDir ?? null, entrypoint: project.entrypoint ?? null, buildMode: project.buildMode ?? 'AUTO', preset: project.preset ?? null, startCommand: project.startCommand ?? null, buildCommand: project.buildCommand ?? null, releaseCommand: project.releaseCommand ?? null, seedCommand: project.seedCommand ?? null });
   }, [project, limitsForm, buildForm]);
-  useEffect(() => { setBuildForm(undefined); }, [project?.rootDir, project?.entrypoint, project?.preset, project?.buildMode, project?.useRepositoryConfig]);
+  useEffect(() => { setBuildForm(undefined); }, [project?.rootDir, project?.entrypoint, project?.preset, project?.buildMode, project?.useRepositoryConfig, project?.healthPath]);
 
   async function saveBuild(e: FormEvent) {
     e.preventDefault();
@@ -195,7 +195,7 @@ export default function ProjectDetail() {
           return <><p>{record.status} · {plan.scope} · Root: {plan.root} · Revision: {plan.revision?.slice(0, 12) ?? 'unavailable'}</p>
             <p className="break-all text-xs text-slate-400">Resolved plan: {plan.id}</p>
             {record.preflight?.reviewedPlanId && <p className="break-all text-xs text-slate-400">Reviewed plan: {record.preflight.reviewedPlanId}</p>}
-            <p>Port {plan.port} · {plan.limits.memoryMb} MB · {plan.limits.cpus} CPU</p>
+            <p>Health check ({plan.healthMode ?? 'legacy availability'}): GET {plan.healthPath} on port {plan.port} · {plan.limits.memoryMb} MB · {plan.limits.cpus} CPU</p>
             {plan.components.map((component, i) => <p key={i} className="break-all">{component.framework} ({component.root}): build {component.build ?? 'none'}; start {component.start}</p>)}
             <p className="text-xs text-slate-400">{plan.verification}</p></>;
         })() : <p className="text-slate-400">No resolved plan recorded yet. Legacy deployments may have no plan history.</p>}

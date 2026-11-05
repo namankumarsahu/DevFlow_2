@@ -29,6 +29,7 @@ export async function waitHealthy(o: {
   timeoutMs: number;
   intervalMs?: number;
   successesNeeded?: number;
+  acceptStatus?: (status: number) => boolean;
   onAttempt?: (attempt: number, status: ProbeResult, elapsedMs: number) => void;
 }): Promise<HealthOutcome> {
   const interval = o.intervalMs ?? 1000;
@@ -43,7 +44,7 @@ export async function waitHealthy(o: {
     last = await o.probe();
     attempts++;
     o.onAttempt?.(attempts, last, Date.now() - started);
-    streak = last !== null && last < 500 ? streak + 1 : 0;
+    streak = last !== null && (o.acceptStatus ? o.acceptStatus(last) : last < 500) ? streak + 1 : 0;
     if (streak >= needed) {
       // It answered, but make sure it did not crash straight afterwards.
       if (!(await o.isAlive())) return { ok: false, reason: 'exited', lastStatus: last, attempts };

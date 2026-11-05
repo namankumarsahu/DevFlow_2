@@ -1,0 +1,1 @@
+{"stack":"Next.js","status":"supported","findings":[],"properties":["./node_modules/.bin/next build","next start --hostname 0.0.0.0 --port","NEXT_TELEMETRY_DISABLED=1"]}

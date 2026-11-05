@@ -5,6 +5,7 @@ import { validCommand } from './render';
 import { BuildSettings } from './types';
 
 export const validEntrypoint = (value: string) => value.length <= 200 && value === value.trim() && /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*$/.test(value);
+export const validHealthPath = (value: string) => value.length <= 200 && value === value.trim() && /^\/[A-Za-z0-9/_.~-]*$/.test(value) && !value.startsWith('//') && !value.split('/').includes('..');
 const command = z.string().min(1).max(1000).refine(value => validCommand(value) && !!value.trim()).nullable();
 const schema = z.object({
   version: z.literal(1),
@@ -12,6 +13,7 @@ const schema = z.object({
   buildMode: z.enum(['AUTO', 'DOCKERFILE']).optional(),
   preset: z.enum(['STATIC', 'NODE', 'PYTHON_DJANGO', 'PYTHON_FLASK', 'PYTHON_FASTAPI', 'FULLSTACK']).nullable().optional(),
   entrypoint: z.string().refine(validEntrypoint).nullable().optional(),
+  healthPath: z.string().refine(validHealthPath).nullable().optional(),
   buildCommand: command.optional(), startCommand: command.optional(),
   releaseCommand: command.optional(), seedCommand: command.optional(),
 }).strict();
@@ -31,7 +33,7 @@ export async function configuredSettings(repo: string, project: ConfigurableSett
   const { version, ...defaults } = parsed;
   const settings: ConfigurableSettings = { ...defaults, ...project };
   const dashboardOverrides: string[] = [];
-  for (const key of ['rootDir', 'preset', 'entrypoint', 'buildCommand', 'startCommand', 'releaseCommand', 'seedCommand'] as const) {
+  for (const key of ['rootDir', 'preset', 'entrypoint', 'healthPath', 'buildCommand', 'startCommand', 'releaseCommand', 'seedCommand'] as const) {
     Object.assign(settings, { [key]: project[key] ?? defaults[key] ?? null });
     if (project[key] != null && defaults[key] !== undefined) dashboardOverrides.push(key);
   }

@@ -23,3 +23,8 @@ built, or sent in the selected frontend's build context.
 
 `configured-site` exercises the versioned repository-root devflow.json format
 and a static app that is intentionally located outside conventional app folders.
+
+`node-production-script`, `pnpm-production` and `yarn-production` use synthetic
+servers whose development command intentionally fails. `next-no-scripts` is a
+minimal synthetic Next.js page. `custom-health-api` returns 404 at / and 200 at
+/ready to exercise repository-configured readiness. None contains real data.

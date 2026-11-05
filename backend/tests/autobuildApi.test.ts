@@ -53,3 +53,7 @@ it('saves detected Python entry points and explicit repository-configuration mod
   expect(res.status).toBe(200); expect(res.body).toMatchObject({ entrypoint: 'app.main:application', useRepositoryConfig: false });
   for (const entrypoint of ['app:app;whoami', '../app:app', 'app:create_app()', 'app:app\n']) expect((await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ entrypoint })).status).toBe(400);
 });
+it('saves an application health path and rejects external URLs, credentials, controls and traversal', async () => {
+  expect((await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ healthPath: '/api/ready' })).status).toBe(200);
+  for (const healthPath of ['http://example.com', '//example.com', '/ready?token=value', '/ready\r\nX: value', '/ready\n', '/../admin']) expect((await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ healthPath })).status).toBe(400);
+});

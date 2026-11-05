@@ -25,6 +25,11 @@ defaults. Explicit dashboard settings take precedence; the review identifies the
 configuration source. Ambiguous layouts offer bounded folder/Python entry-point
 choices. Recorded plans retain reviewed and resolved identities for comparison.
 
+See [build reliability](BUILD-RELIABILITY.md) for production script selection,
+workspace limitations, network retries, frontend build variables and per-project
+readiness checks. These are bounded compatibility rules, not support for every
+repository using a named framework.
+
 Each preflight result includes a status and reason:
 
 - `supported`: a recognized layout with no known warnings or blockers.

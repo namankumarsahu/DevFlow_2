@@ -26,6 +26,7 @@ import { config } from '../src/config';
 import { db, redisValues } from './helpers/db';
 import { runProcess } from '../src/lib/runProcess';
 import { processDeployment } from '../src/worker';
+import { httpProbe, waitHealthy } from '../src/lib/health';
 
 let tmp: string, fixtureName: string, builtDockerfile: string, originalDockerfile: string | null;
 beforeEach(async () => {
@@ -80,6 +81,26 @@ it('stops changed reviewed plans before running BuildKit or switching the curren
   expect(result().error).toContain('changed after plan review');
   expect(db.tables.project[0].currentDeploymentId).toBe('old');
   expect((runProcess as jest.Mock).mock.calls.some(([o]) => o.cmd === 'buildctl')).toBe(false);
+});
+it('uses the reviewed custom health path with strict readiness status checks', async () => {
+  Object.assign(db.tables.project[0], { healthPath: '/ready' });
+  await processDeployment('deployment');
+  expect(result().status).toBe('SUCCESS');
+  const health = (waitHealthy as jest.Mock).mock.calls[0][0];
+  await health.probe();
+  expect(httpProbe).toHaveBeenCalledWith(expect.any(String), 3000, '/ready');
+  expect(health.acceptStatus(200)).toBe(true); expect(health.acceptStatus(404)).toBe(false);
+});
+it('preserves the target readiness settings when reusing a rollback image', async () => {
+  Object.assign(db.tables.project[0], { healthPath: '/changed' });
+  Object.assign(db.tables.deployment[0], { rollbackOfId: 'old', imageTag: 'devflow/project:old', preflight: { rollbackHealthPath: '/ready', rollbackHealthMode: 'readiness' } });
+  await processDeployment('deployment');
+  expect(result()).toMatchObject({ status: 'SUCCESS', preflight: { rollbackHealthPath: '/ready', rollbackHealthMode: 'readiness' } });
+  const health = (waitHealthy as jest.Mock).mock.calls[0][0];
+  await health.probe();
+  expect(httpProbe).toHaveBeenCalledWith(expect.any(String), 3000, '/ready');
+  expect(health.acceptStatus(404)).toBe(false);
+  expect(builtDockerfile).toBe('');
 });
 it('honors the preset override and leaves the repository Dockerfile unchanged', async () => {
   fixtureName = 'dockerfile'; Object.assign(db.tables.project[0], { preset: 'STATIC', buildMode: 'DOCKERFILE' });

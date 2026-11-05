@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { detect, detectPreset } from './selection';
-import { entry, file, names } from './files';
+import { at, entry, file, names } from './files';
 import { AppSpec, BuildSettings, Detection, RenderContext } from './types';
 import { lintDockerfileAt } from '../dockerfileLint';
 import { SUPPORT_VERSION, SupportStatus } from './support';
@@ -17,7 +17,7 @@ export type PreflightResult = {
 };
 export type PreflightSettings = BuildSettings & { containerPort?: number; releaseCommand?: string | null; seedCommand?: string | null; rootDir?: string | null };
 export function preflightKey(project: PreflightSettings & { repoUrl?: string; branch?: string }, envNames: string[], context?: RenderContext) {
-  return createHash('sha256').update(JSON.stringify([SUPPORT_VERSION, project.repoUrl, project.branch, project.useRepositoryConfig ?? true, project.rootDir ?? null, project.entrypoint ?? null, project.buildMode ?? 'AUTO', project.preset ?? null, project.containerPort ?? 3000, project.startCommand ?? null, project.buildCommand ?? null, project.releaseCommand ?? null, project.seedCommand ?? null, [...envNames].sort(), context])).digest('hex');
+  return createHash('sha256').update(JSON.stringify([SUPPORT_VERSION, project.repoUrl, project.branch, project.healthPath ?? null, project.useRepositoryConfig ?? true, project.rootDir ?? null, project.entrypoint ?? null, project.buildMode ?? 'AUTO', project.preset ?? null, project.containerPort ?? 3000, project.startCommand ?? null, project.buildCommand ?? null, project.releaseCommand ?? null, project.seedCommand ?? null, [...envNames].sort(), context])).digest('hex');
 }
 export function summarize(findings: Finding[], stack: string | null, rule: string): PreflightResult {
   const blockers = findings.filter((f) => f.severity === 'blocker');
@@ -28,7 +28,7 @@ export function summarize(findings: Finding[], stack: string | null, rule: strin
     stack, rule, findings, requiredEnv: [...new Set(findings.filter((f) => f.id.startsWith('env.missing.')).map((f) => f.id.slice('env.missing.'.length)))].sort(),
   };
 }
-const systemEnv = new Set(['PORT', 'HOST', 'NODE_ENV', 'NODE_OPTIONS', 'HOME', 'PATH', 'TMPDIR', 'PYTHONPATH', 'PYTHONUNBUFFERED', 'PYTHONDONTWRITEBYTECODE', 'DJANGO_SETTINGS_MODULE', 'DEVFLOW_URL', 'DEVFLOW_PREVIEW', 'DEVFLOW_PR_NUMBER']);
+const systemEnv = new Set(['PORT', 'HOST', 'NODE_ENV', 'NODE_OPTIONS', 'HOME', 'PATH', 'TMPDIR', 'PYTHONPATH', 'PYTHONUNBUFFERED', 'PYTHONDONTWRITEBYTECODE', 'DJANGO_SETTINGS_MODULE', 'DEVFLOW_URL', 'DEVFLOW_PREVIEW', 'DEVFLOW_PR_NUMBER', 'DEVFLOW_TRUSTED_PROXIES']);
 const sourcePattern = /\.(?:[cm]?js|jsx|ts|tsx|py|toml|json|ya?ml|prisma)$/;
 const ignored = /(?:^|\/)(?:tests?|__tests__|migrations|dist|build|out|public|node_modules|venv|\.venv)(?:\/|$)|(?:\.test\.|\.spec\.|(?:^|\/)test_|\/tests?\.py$)|(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/;
 function backendSpec(spec?: AppSpec) { return spec?.kind === 'fullstack' ? spec.backend : spec; }
@@ -54,6 +54,8 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
   const spec = detection?.parameters;
   let unsupportedFramework: string | null = null;
   const backend = backendSpec(spec);
+  const apps = spec?.kind === 'fullstack' ? [spec.frontend, spec.backend] : spec ? [spec] : [];
+  for (const app of apps) if (app.kind === 'node' && (app.workspaceLayout || app.workspaceDependencies)) add('layout.workspace', 'blocker', 'This app requires a workspace-aware install context that the current generated recipe does not provide.', at(app.root, 'package.json'), 1, 'Choose an independent app folder with its own dependencies, or provide a Dockerfile that installs the complete workspace.');
   if (backend?.kind === 'node' && backend.framework === 'node' && !backend.hasStart && !backend.main && !settings.startCommand) add('entry.node', 'blocker', 'Node app has no start script or main entry point.', `${backend.root}/package.json`, 1, 'Add a start script or set Start command.');
   if ((spec?.kind === 'node' && ['vite', 'cra'].includes(spec.framework) || spec?.kind === 'fullstack' && spec.frontend.kind === 'node') && !settings.buildCommand) {
     const front = spec.kind === 'fullstack' ? spec.frontend : spec;
@@ -63,7 +65,7 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
   const fullstack = spec?.kind === 'fullstack';
   const configured = new Set([...systemEnv, ...envNames]);
   const required = new Map<string, { filename: string; line: number; certain: boolean }>();
-  const sources: { filename: string; source: string }[] = [];
+  const sources: { filename: string; source: string; scriptLine?: number; checkHost?: boolean }[] = [];
   let scannedBytes = 0;
   for (const filename of await names(repoDir)) {
     if (filename === 'expected.json' || filename === 'devflow.json' || ignored.test(filename) || !sourcePattern.test(filename) && !filename.endsWith('requirements.txt') && filename !== 'Dockerfile') continue;
@@ -81,14 +83,22 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
     });
   }
   let hasHttp = false, hasWorker = false, hasSqlite = false, hasDjangoModels = false;
+  if (generatedServer && !settings.startCommand && backend?.kind === 'node') {
+    const filename = at(backend.root, 'package.json');
+    const raw = await file(repoDir, filename);
+    if (raw) {
+      const pkg = JSON.parse(raw), scriptName = backend.startScript ?? 'start';
+      if (typeof pkg.scripts?.[scriptName] === 'string') sources.push({ filename, source: pkg.scripts[scriptName], checkHost: true, scriptLine: raw.slice(0, Math.max(0, raw.indexOf(JSON.stringify(scriptName)))).split('\n').length });
+    }
+  }
   for (const [name, command] of [['startCommand', settings.startCommand], ['releaseCommand', settings.releaseCommand], ['seedCommand', settings.seedCommand]] as const) if (command) sources.push({ filename: `<${name}>`, source: command });
-  for (const { filename, source } of sources) {
+  for (const { filename, source, scriptLine, checkHost } of sources) {
     if (/\b(?:express|fastify|koa|next|http-server|Flask|FastAPI|gunicorn|uvicorn)\b|\.listen\s*\(|createServer\s*\(/.test(source)) hasHttp = true;
     if (/\b(?:celery|bullmq|cron|rq)\b|node\s+\S*(?:worker|cron)/i.test(source)) hasWorker = true;
     if (/sqlite|db\.sqlite3/i.test(source)) hasSqlite = true;
     if (/models\.(?:Model|CharField)|django\.db/.test(source)) hasDjangoModels = true;
     source.split(/\r?\n/).forEach((line, index) => {
-      const number = index + 1;
+      const number = scriptLine ?? index + 1;
       if (/^\s*(?:#|\/\/)/.test(line)) return;
       if (!detection && !ownDockerfile && /^\s*(?:import\s+streamlit\b|from\s+streamlit\s+import\b)/.test(line)) {
         unsupportedFramework = 'Streamlit';
@@ -101,9 +111,11 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
         }
       }
       // Do not return source snippets: even a default or example can be a secret.
-      const envPattern = /process\.env(?:\.([A-Z][A-Z0-9_]{0,99})|\[\s*["']([A-Z][A-Z0-9_]{0,99})["']\s*\])|os\.environ\[\s*["']([A-Z][A-Z0-9_]{0,99})["']\s*\]|(?:os\.getenv|os\.environ\.get|\benv)\(\s*["']([A-Z][A-Z0-9_]{0,99})["']/g;
+      const envPattern = /process\.env(?:\.([A-Z][A-Z0-9_]{0,99})|\[\s*["']([A-Z][A-Z0-9_]{0,99})["']\s*\])|os\.environ\[\s*["']([A-Z][A-Z0-9_]{0,99})["']\s*\]|(?:os\.getenv|os\.environ\.get|\benv)\(\s*["']([A-Z][A-Z0-9_]{0,99})["']|import\.meta\.env\.([A-Z][A-Z0-9_]{0,99})/g;
       for (const match of line.matchAll(envPattern)) {
-        const name = match[1] ?? match[2] ?? match[3] ?? match[4];
+        const name = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5];
+        if (match[5] && ['MODE', 'DEV', 'PROD', 'BASE_URL', 'SSR'].includes(name)) continue;
+        if (/^(?:VITE_|REACT_APP_|NEXT_PUBLIC_)/.test(name)) add('env.frontend-build', 'warning', `Frontend variable ${name} needs build-time configuration; project environment variables currently apply at runtime.`, filename, number, 'Provide public build configuration explicitly in your Dockerfile or safe frontend configuration. Never bake API secrets into browser bundles.');
         // An assignment configures the process; it is not a missing input.
         // Keep comparisons (==/===) and augmented assignments as reads.
         if ((match[1] || match[2] || match[3]) && /^\s*=(?!=)/.test(line.slice(match.index! + match[0].length))) continue;
@@ -123,7 +135,7 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
       if (/(?:listen\s*\([^\n]*|host\s*=\s*|--host\s+|--bind\s+)["']?(?:localhost|127\.0\.0\.1|::1)/.test(line) && !/\bHOST\b/.test(source)) {
         add('network.loopback', !fullstack && (generatedServer && !settings.startCommand || filename === '<startCommand>') ? 'blocker' : 'warning', 'A loopback-only bind address was found.', filename, number, fullstack ? 'Loopback is valid for an internal backend; confirm nginx proxies to that port.' : 'Bind the HTTP server to 0.0.0.0 and read HOST/PORT.');
       }
-      if ((ownDockerfile || settings.startCommand || generatedServer) && /\b(?:flask\s+run|uvicorn|vite(?:\s+preview)?)\b/.test(line) && !/--host|0\.0\.0\.0/.test(line) && (filename.endsWith('package.json') || filename.endsWith('.toml') || filename === '<startCommand>')) add('network.default-host', 'warning', 'A development/default-host start command was found.', filename, number, 'Generated framework recipes use production servers; custom commands must specify 0.0.0.0 and PORT.');
+      if ((checkHost || filename === '<startCommand>' || filename === 'Dockerfile' && /^\s*(?:CMD|ENTRYPOINT)\b/.test(line)) && /\b(?:flask\s+run|uvicorn|vite(?:\s+preview)?)\b/.test(line) && !/--host|0\.0\.0\.0/.test(line)) add('network.default-host', 'warning', 'A development/default-host start command was found.', filename, number, 'Generated framework recipes use production servers; custom commands must specify 0.0.0.0 and PORT.');
       const serviceRules = [
         ['database', /postgres|psycopg|mysql|mongoose|mongodb|prisma/i, 'Provision an external database and configure its connection variables.'],
         ['redis', /ioredis|redis|bullmq|celery/i, 'Provision external Redis and configure its URL.'],
@@ -146,7 +158,10 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
     if (hasDjangoModels && !settings.releaseCommand) add('database.migrations', 'warning', 'Django models were found without a release command.', 'manage.py', 1, 'For an external database set Release command to python manage.py migrate --noinput. One-off SQLite migrations cannot persist into a new app container.');
   }
   for (const [name, evidence] of required) if (!configured.has(name)) {
-    add(`env.missing.${name}`, evidence.certain ? 'blocker' : 'warning', `Environment variable ${name} is not configured.`, evidence.filename, evidence.line, `Add ${name} in project environment variables; optional/defaulted variables can be reviewed and left unset.`, { type: 'add-env', name });
+    const publicBuildVariable = /^(?:VITE_|REACT_APP_|NEXT_PUBLIC_)/.test(name);
+    add(`env.missing.${name}`, evidence.certain ? 'blocker' : 'warning', `Environment variable ${name} is not configured.`, evidence.filename, evidence.line,
+      publicBuildVariable ? `Configure ${name} as a public build-time value in your Dockerfile or frontend configuration. The runtime environment form does not inject it into browser bundles.` : `Add ${name} in project environment variables; optional/defaulted variables can be reviewed and left unset.`,
+      publicBuildVariable ? undefined : { type: 'add-env', name });
   }
   for (const name of ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']) {
     const compose = await file(repoDir, name);

@@ -79,6 +79,7 @@ model Project {
   preset              BuildPreset?
   entrypoint          String?      // Explicit detected Python module:application.
   useRepositoryConfig Boolean      @default(true)
+  healthPath          String?      // null inherits repository configuration or platform default.
   startCommand        String?
   buildCommand        String?
   releaseCommand      String?

@@ -15,11 +15,11 @@ export type DeploymentPlan = {
   configuration: ConfigSource | null;
   scope: 'static-assets' | 'web-service' | 'cohosted-frontend-api' | 'dockerfile';
   confidence: 'manifest-and-entrypoint' | 'user-dockerfile'; evidence: string[];
-  port: number; healthPath: string; limits: RenderContext['limits'];
+  port: number; healthPath: string; healthMode: 'readiness' | 'liveness'; limits: RenderContext['limits'];
   releaseCommand: string | null; seedCommand: string | null; requiredEnv: string[];
   externalRequirements: { kind: string; evidence: { file: string; line: number }[]; state: 'configuration-unverified' }[];
   components: { root: string; framework: string; runtime: string; manager: string | null; install: string | null; build: string | null; start: string; output: string | null; port: number }[];
-  verification: 'HTTP readiness only; application workflows and external credentials are unverified';
+  verification: 'HTTP checks only; application workflows and external credentials are unverified';
 };
 export type ResolvedPlan = { plan: DeploymentPlan; settings: PlanSettings; contextDir: string; text: string; generated: boolean; warning?: string; detection?: Detection };
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -66,9 +66,10 @@ export async function resolvePlan(clone: string, settings: PlanSettings, ctx: Re
   } else if (detection) component(detection.parameters, scope === 'static-assets', ctx.port);
   const details = { version: PLAN_VERSION, revision, root, rule, stack: detection?.stack ?? 'Dockerfile', scope, configuration,
     confidence: detection ? 'manifest-and-entrypoint' as const : 'user-dockerfile' as const,
-    evidence: (detection?.evidence ?? ['Dockerfile']).map(relative), port: ctx.port, healthPath: ctx.healthPath ?? '/', limits: ctx.limits,
+    evidence: (detection?.evidence ?? ['Dockerfile']).map(relative), port: ctx.port, healthPath: ctx.healthPath ?? '/',
+    healthMode: settings.healthPath != null || (ctx.healthPath ?? '/') !== '/' || scope === 'static-assets' || scope === 'cohosted-frontend-api' ? 'readiness' as const : 'liveness' as const, limits: ctx.limits,
     releaseCommand: settings.releaseCommand ?? null, seedCommand: settings.seedCommand ?? null, requiredEnv: [...requiredEnv].sort(), components, externalRequirements,
-    verification: 'HTTP readiness only; application workflows and external credentials are unverified' as const };
+    verification: 'HTTP checks only; application workflows and external credentials are unverified' as const };
   return { settings, contextDir, text, generated, detection, warning: settings.preset && own ? 'Explicit preset overrides the repository Dockerfile; ignoring that Dockerfile' : undefined,
     plan: { ...details, id: hash(JSON.stringify([SUPPORT_VERSION, details, [...envNames].sort(), hash(text)])) } };
 }

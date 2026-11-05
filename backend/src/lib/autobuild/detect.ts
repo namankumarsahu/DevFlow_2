@@ -33,10 +33,13 @@ export async function detectNode(repo: string, root = '.'): Promise<Detection | 
   const managerVersion = manager === 'npm' ? '' : requested.startsWith(manager + '@') ? requested : manager === 'pnpm' ? 'pnpm@9.15.9' : modernYarn ? 'yarn@4.5.3' : 'yarn@1.22.22';
   const major = /(?:^|[\s^~>=|])(22|24)(?:\D|$)/.exec(String(pkg.engines?.node ?? ''))?.[1] ?? '22';
   const main = typeof pkg.main === 'string' && /^[\w./-]+$/.test(pkg.main) && !pkg.main.split('/').includes('..') ? pkg.main : null;
+  const startScript = framework === 'node' && typeof pkg.scripts?.['start:prod'] === 'string' ? 'start:prod' : typeof pkg.scripts?.start === 'string' ? 'start' : null;
   const parameters: NodeApp = {
     kind: 'node', root, framework, image: `node:${major}-alpine`, manager, managerVersion,
     manifests: ['package.json', ...found], hasBuild: typeof pkg.scripts?.build === 'string',
-    hasStart: typeof pkg.scripts?.start === 'string', main, output: framework === 'cra' ? 'build' : 'dist',
+    hasStart: !!startScript, startScript, main, output: framework === 'cra' ? 'build' : 'dist',
+    workspaceLayout: Array.isArray(pkg.workspaces) ? pkg.workspaces.length > 0 : !!pkg.workspaces,
+    workspaceDependencies: Object.values(deps).some(value => typeof value === 'string' && value.startsWith('workspace:')),
   };
   return { strategyId: 'node', stack: framework === 'node' ? deps['@nestjs/core'] ? 'NestJS' : deps.express ? 'Express' : 'Node' : framework === 'next' ? 'Next.js' : framework === 'cra' ? 'Create React App' : 'Vite', evidence: parameters.manifests.map((n) => at(root, n)), parameters };
 }

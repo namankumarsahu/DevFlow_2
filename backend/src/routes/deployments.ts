@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/auth';
 import { cancelDeployment, requestDeployment } from '../services/deployments';
 import { deployBurstLimiter } from '../middleware/limiters';
 import { getAccessibleProject } from './projects';
+import { validHealthPath } from '../lib/autobuild/configuration';
 
 export const deploymentsRouter = Router();
 deploymentsRouter.use(authenticate);
@@ -34,12 +35,17 @@ deploymentsRouter.post('/:id/rollback', deployBurstLimiter, async (req, res) => 
   if (target.status !== 'SUCCESS' || !target.imageTag) {
     throw new HttpError(409, 'Can only roll back to a previous successful deployment');
   }
+  const recorded = target.preflight as { plan?: { healthPath?: unknown; healthMode?: unknown }; rollbackHealthPath?: unknown; rollbackHealthMode?: unknown } | null;
+  const healthPath = recorded?.plan?.healthPath ?? recorded?.rollbackHealthPath;
+  const healthMode = recorded?.plan?.healthMode ?? recorded?.rollbackHealthMode;
   const d = await requestDeployment(project, req.user!.id, {
     id: target.id,
     imageTag: target.imageTag,
     commitHash: target.commitHash,
     detectedStack: target.detectedStack,
     buildRule: target.buildRule,
+    healthPath: typeof healthPath === 'string' && validHealthPath(healthPath) ? healthPath : undefined,
+    healthMode: healthMode === 'readiness' || healthMode === 'liveness' ? healthMode : undefined,
   });
   res.status(202).json(d);
 });

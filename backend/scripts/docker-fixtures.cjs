@@ -9,7 +9,10 @@ const docker = (...args) => exec('docker', args, { timeout: 300000, maxBuffer: 1
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
   const root = path.join(__dirname, '../tests/fixtures/real');
-  for (const name of (await fs.readdir(root)).sort()) {
+  const available = (await fs.readdir(root)).sort();
+  const requested = process.argv.slice(2);
+  if (requested.some(name => !available.includes(name) || name.endsWith('.md'))) throw new Error('Unknown Docker fixture selection');
+  for (const name of available.filter(name => !requested.length || requested.includes(name))) {
     if (!(await fs.stat(path.join(root, name))).isDirectory()) continue;
     const fixture = await inspectFixture(path.join(root, name), library);
     let container;
@@ -26,13 +29,14 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       const env = ['-e', 'PORT=3587', '-e', 'DJANGO_SECRET_KEY=fixture-only-not-a-real-credential', '-e', 'DEVFLOW_TRUSTED_PROXIES=127.0.0.1,::1'];
       await docker('run', '-d', '--name', container, '--memory', '256m', '--memory-swap', '256m', '--cpus', '0.25', '--pids-limit', '256', '--security-opt', 'no-new-privileges', ...(network ? ['--network', network] : ['-p', '127.0.0.1::3587']), ...env, image);
       const address = network ? `${container}:3587` : (await docker('port', container, '3587/tcp')).stdout.trim();
+      const healthPath = fixture.requirements.plan?.healthPath || '/';
       let ready = false;
       for (let i = 0; i < 90; i++) {
-        try { const response = await fetch(`http://${address}/`, { signal: AbortSignal.timeout(2000) }); await response.text(); if (response.status === 200) { ready = true; break; } } catch {}
+        try { const response = await fetch(`http://${address}${healthPath}`, { signal: AbortSignal.timeout(2000) }); await response.text(); if (response.status === 200) { ready = true; break; } } catch {}
         await delay(500);
       }
       if (!ready) throw new Error((await docker('logs', '--tail', '30', container)).stdout + ' GET / did not return 200');
-      console.log(`PASS ${name}: Docker build, non-root, <1GB, GET / 200 with PORT=3587 at 256MB/0.25CPU`);
+      console.log(`PASS ${name}: Docker build, non-root, <1GB, GET ${healthPath} 200 with PORT=3587 at 256MB/0.25CPU`);
     } finally { if (container) await docker('rm', '-f', container).catch(() => {}); await fixture.cleanup(); }
   }
 })().catch(error => { console.error(error.stderr || error.message); process.exitCode = 1; });

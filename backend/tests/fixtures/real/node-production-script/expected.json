@@ -1,0 +1,1 @@
+{"stack":"Node","status":"supported","findings":[],"properties":["npm run start:prod","npm run build","--fetch-timeout=30000","USER node"]}

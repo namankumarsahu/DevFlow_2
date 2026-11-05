@@ -1,0 +1,1 @@
+{"name":"yarn-production-regression","version":"1.0.0","packageManager":"yarn@4.5.3","scripts":{"build":"node build.cjs","start":"node dev.cjs","start:prod":"node dist/server.cjs"}}

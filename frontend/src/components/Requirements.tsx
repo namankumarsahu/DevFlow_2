@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { api, Project } from '../api';
 
 export type Finding = { id: string; severity: 'blocker' | 'warning' | 'info'; message: string; fix: string; evidence: { file: string; line: number }[]; action?: { type: 'set-port'; port: number } | { type: 'add-env'; name: string } };
-export type DeploymentPlan = { version: number; id: string; revision: string | null; root: string; scope: string; port: number; healthPath: string; evidence: string[]; limits: { memoryMb: number; cpus: number; diskMb: number }; releaseCommand: string | null; seedCommand: string | null; components: { root: string; framework: string; runtime: string; install: string | null; build: string | null; start: string; port: number; output: string | null }[]; verification: string; configuration?: { file: string; version: number; dashboardOverrides: string[] } | null };
+export type DeploymentPlan = { version: number; id: string; revision: string | null; root: string; scope: string; port: number; healthPath: string; healthMode?: "readiness" | "liveness"; evidence: string[]; limits: { memoryMb: number; cpus: number; diskMb: number }; releaseCommand: string | null; seedCommand: string | null; components: { root: string; framework: string; runtime: string; install: string | null; build: string | null; start: string; port: number; output: string | null }[]; verification: string; configuration?: { file: string; version: number; dashboardOverrides: string[] } | null };
 type EntryChoice = { label: string; rootDir: string; preset: Project['preset']; entrypoint: string | null; scope: string };
 export type RequirementsState = { ready: boolean; override: boolean; planId?: string };
 export type PreflightResult = { version: number; status: 'supported' | 'supported-with-warnings' | 'unsupported'; reason: string; stack: string | null; findings: Finding[]; requiredEnv: string[]; plan?: DeploymentPlan; choices?: EntryChoice[] };
@@ -18,7 +18,7 @@ export default function Requirements({ project, envNames, admin, onState, onChan
   const [retry, setRetry] = useState(0);
   const [envName, setEnvName] = useState('');
   const [envValue, setEnvValue] = useState('');
-  const signature = JSON.stringify([project.id, project.repoUrl, project.branch, project.useRepositoryConfig, project.rootDir, project.entrypoint, project.buildMode, project.preset, project.containerPort, project.startCommand, project.buildCommand, project.releaseCommand, project.seedCommand, project.memoryMb, project.cpus, project.diskMb, project.limits?.effective, [...envNames].sort(), project.preflightAt && !project.preflightKey ? 'dirty' : 'clean']);
+  const signature = JSON.stringify([project.id, project.repoUrl, project.branch, project.healthPath, project.useRepositoryConfig, project.rootDir, project.entrypoint, project.buildMode, project.preset, project.containerPort, project.startCommand, project.buildCommand, project.releaseCommand, project.seedCommand, project.memoryMb, project.cpus, project.diskMb, project.limits?.effective, [...envNames].sort(), project.preflightAt && !project.preflightKey ? 'dirty' : 'clean']);
   useEffect(() => { const timer = setInterval(() => setRetry((n) => n + 1), 5 * 60_000); return () => clearInterval(timer); }, [project.id]);
   useEffect(() => {
     let current = true;
@@ -62,7 +62,7 @@ export default function Requirements({ project, envNames, admin, onState, onChan
         <p>Revision: <code>{result.plan.revision?.slice(0, 12) ?? 'Unavailable'}</code> · Root: <code>{result.plan.root}</code></p>
         {result.plan.configuration && <p className="text-xs text-slate-400">Configuration: {result.plan.configuration.file} v{result.plan.configuration.version}. Dashboard overrides: {result.plan.configuration.dashboardOverrides.join(', ') || 'none'}.</p>}
         <p>{result.plan.scope === 'static-assets' ? 'Static frontend only. This deployment does not host an API or database.' : result.plan.scope === 'cohosted-frontend-api' ? 'Frontend and API in one container. External services remain separate.' : result.plan.scope === 'dockerfile' ? 'Repository Dockerfile controls the application commands.' : 'HTTP application service.'}</p>
-        <p>Health check: GET {result.plan.healthPath} on port {result.plan.port} · {result.plan.limits.memoryMb} MB · {result.plan.limits.cpus} CPU</p>
+        <p>Health check ({result.plan.healthMode ?? "legacy availability"}): GET {result.plan.healthPath} on port {result.plan.port} · {result.plan.limits.memoryMb} MB · {result.plan.limits.cpus} CPU</p>
         {result.plan.components.map((c, i) => <div key={i} className="space-y-1 border-t border-slate-700 pt-2"><p>{c.framework} · {c.root} · {c.runtime} · port {c.port}</p>
           {c.install && <p className="break-all">Install: <code>{c.install}</code></p>}{c.build && <p className="break-all">Build: <code>{c.build}</code></p>}
           <p className="break-all">Start: <code>{c.start}</code></p>{c.output && <p>Output: {c.output}</p>}</div>)}

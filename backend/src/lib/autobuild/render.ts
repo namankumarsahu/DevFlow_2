@@ -27,18 +27,19 @@ function packageSetup(n: NodeApp) {
 }
 export function nodeInstallCommand(n: NodeApp, production: boolean) {
   const locked = n.manifests.length > 1;
-  const command = n.manager === 'npm' ? `npm ${locked ? 'ci' : 'install'}${production ? ' --omit=dev' : ''} --no-audit --no-fund`
+  const command = n.manager === 'npm' ? `npm ${locked ? 'ci' : 'install'}${production ? ' --omit=dev' : ''} --no-audit --no-fund --prefer-offline --fetch-retries=2 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=5000 --fetch-timeout=30000 --maxsockets=8`
     : n.manager === 'pnpm' ? `pnpm install${locked ? ' --frozen-lockfile' : ''}${production ? ' --prod' : ''}`
       : `YARN_NODE_LINKER=node-modules yarn install${locked ? n.managerVersion.startsWith('yarn@1.') ? ' --frozen-lockfile' : ' --immutable' : ''}${production && n.managerVersion.startsWith('yarn@1.') ? ' --production' : ''}`;
   return packageSetup(n) + command;
 }
 const nodeInstall = (n: NodeApp, production: boolean) => install(nodeInstallCommand(n, production));
 export function nodeBuild(n: NodeApp, override?: string | null) {
-  return override ?? (n.hasBuild ? `${n.manager} run build` : null);
+  return override ?? (n.hasBuild ? `${n.manager} run build` : n.framework === 'next' ? './node_modules/.bin/next build' : null);
 }
 export function nodeStart(n: NodeApp, override?: string | null) {
   if (override) return override;
   if (n.framework === 'next') return './node_modules/.bin/next start --hostname 0.0.0.0 --port "$PORT"';
+  if (n.startScript === 'start:prod') return 'npm run start:prod';
   if (n.hasStart) return 'npm start';
   if (n.main) return `node -- ${quote(n.main)}`;
   throw new Error('Node app has no start script or main entry; set Start command in project settings or add a Dockerfile');
@@ -47,6 +48,7 @@ function workspace(n: NodeApp, stage: string, override?: string | null) {
   const build = nodeBuild(n, override);
   return [
     `FROM ${n.image} AS ${stage}`, 'WORKDIR /app',
+    ...(n.manager === 'yarn' ? ['ENV YARN_NODE_LINKER=node-modules'] : []),
     ...(n.framework === 'next' ? ['ENV NEXT_TELEMETRY_DISABLED=1'] : []),
     copy(n.manifests.map((f) => at(n.root, f)), './'), nodeInstall(n, !build),
     copy([n.root], './'), ...(build ? [run(build), run('rm -rf node_modules/.cache .next/cache')] : []),
