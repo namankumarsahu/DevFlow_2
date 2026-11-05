@@ -1,48 +1,24 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, Project } from '../api';
 import UsageBanner, { useUsage } from '../components/UsageBanner';
-import BuildFields, { defaultBuildSettings } from '../components/BuildFields';
+import CreateProject from '../components/CreateProject';
 
 export default function Projects() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [form, setForm] = useState({ name: '', repoUrl: '', branch: 'main', environment: 'PRODUCTION', containerPort: 3000, ...defaultBuildSettings });
   const [error, setError] = useState('');
   const usage = useUsage();
 
-  const load = () => api<Project[]>('/projects').then(setProjects);
-  useEffect(() => void load(), []);
+  const load = () => api<Project[]>('/projects').then(incoming => setProjects(current => [...current, ...incoming.filter(project => !current.some(p => p.id === project.id))]));
+  useEffect(() => { void load().catch(err => setError(err.message)); }, []);
 
-  async function create(e: FormEvent) {
-    e.preventDefault();
-    setError('');
-    try {
-      const created = await api<Project>('/projects', { method: 'POST', body: form });
-      setForm({ ...form, name: '', repoUrl: '' });
-      load();
-      navigate(`/projects/${created.id}`);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
-  const input = 'rounded bg-slate-900 px-3 py-2 text-sm';
+  const remember = (project: Project) => setProjects(previous => previous.some(p => p.id === project.id) ? previous.map(p => p.id === project.id ? project : p) : [project, ...previous]);
   return (
     <div className="space-y-8">
       <UsageBanner usage={usage} />
-      <form onSubmit={create} className="grid gap-3 rounded-lg border border-slate-800 p-4 md:grid-cols-6">
-        <input className={`${input} md:col-span-1`} placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-        <input className={`${input} md:col-span-2`} placeholder="https://github.com/owner/repo" value={form.repoUrl} onChange={(e) => setForm({ ...form, repoUrl: e.target.value })} required />
-        <input className={input} placeholder="Branch" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} />
-        <select className={input} value={form.environment} onChange={(e) => setForm({ ...form, environment: e.target.value })}>
-          <option>DEVELOPMENT</option><option>STAGING</option><option>PRODUCTION</option>
-        </select>
-        <input className={input} type="number" title="Container port" value={form.containerPort} onChange={(e) => setForm({ ...form, containerPort: Number(e.target.value) })} />
-        <div className="md:col-span-6"><BuildFields value={form} onChange={(settings) => setForm({ ...form, ...settings })} /></div>
-        <button className="rounded bg-indigo-600 py-2 text-sm font-medium hover:bg-indigo-500 md:col-span-6">Create project</button>
-        {error && <p className="text-sm text-rose-400 md:col-span-6">{error}</p>}
-      </form>
+      <CreateProject onProject={remember} onDeployed={project => navigate(`/projects/${project.id}`)} />
+      {error && <p role="alert" className="text-sm text-rose-400">{error}</p>}
 
       <div className="grid gap-4 md:grid-cols-2">
         {projects.map((p) => (

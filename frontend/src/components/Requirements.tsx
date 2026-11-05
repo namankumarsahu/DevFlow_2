@@ -3,7 +3,7 @@ import { api, Project } from '../api';
 
 export type Finding = { id: string; severity: 'blocker' | 'warning' | 'info'; message: string; fix: string; evidence: { file: string; line: number }[]; action?: { type: 'set-port'; port: number } | { type: 'add-env'; name: string } };
 export type DeploymentPlan = { version: number; id: string; revision: string | null; root: string; scope: string; port: number; healthPath: string; healthMode?: "readiness" | "liveness"; evidence: string[]; limits: { memoryMb: number; cpus: number; diskMb: number }; releaseCommand: string | null; seedCommand: string | null; components: { root: string; framework: string; runtime: string; install: string | null; build: string | null; start: string; port: number; output: string | null }[]; verification: string; configuration?: { file: string; version: number; dashboardOverrides: string[] } | null };
-type EntryChoice = { label: string; rootDir: string; preset: Project['preset']; entrypoint: string | null; scope: string };
+export type EntryChoice = { label: string; rootDir: string; preset: Project['preset']; entrypoint: string | null; scope: string };
 export type RequirementsState = { ready: boolean; override: boolean; planId?: string };
 export type PreflightResult = { version: number; status: 'supported' | 'supported-with-warnings' | 'unsupported'; reason: string; stack: string | null; findings: Finding[]; requiredEnv: string[]; plan?: DeploymentPlan; choices?: EntryChoice[] };
 export default function Requirements({ project, envNames, admin, onState, onChanged }: {
