@@ -28,6 +28,7 @@ export default function CreateProject({ onProject, onDeployed }: { onProject: (p
   const working = useRef(false);
   const mounted = useRef(true);
   const drafts = useRef(new Map<string, Project>());
+  const savedForms = useRef(new Map<string, { form: SetupForm; migrationCommand: string | null }>());
   const abort = useRef<AbortController>();
   useEffect(() => { mounted.current = true; abort.current = new AbortController(); return () => { mounted.current = false; abort.current?.abort(); }; }, []);
   useEffect(() => {
@@ -52,7 +53,7 @@ export default function CreateProject({ onProject, onDeployed }: { onProject: (p
     try {
       const repo = repositoryIdentity(repoUrl);
       let project = drafts.current.get(repo.url);
-      if (!currentDraft) { setReport(undefined); setCatalog([]); setScopes([]); setMigrationCommand(null); setEnvValues({}); setSavedNames([]); }
+      if (!currentDraft) { setReport(undefined); setCatalog([]); setScopes([]); setMigrationCommand(savedForms.current.get(repo.url)?.migrationCommand ?? null); setEnvValues({}); setSavedNames([]); }
       let branch = next.branch || project?.branch;
       if (!branch) {
         try { branch = await defaultBranch(repo, abort.current?.signal); }
@@ -83,8 +84,8 @@ export default function CreateProject({ onProject, onDeployed }: { onProject: (p
       setCatalog(previous => mergeChoices(previous, result.choices));
       // One unambiguous suggestion needs no question. Re-run the same validated
       // project endpoints once; never guess entry points or loop on detection.
-      if (!result.plan && result.choices?.length === 1 && result.findings.some(f => ['layout.unrecognized', 'layout.root-directory'].includes(f.id))) {
-        next = choiceSettings(next, result.choices[0]);
+      if (!result.plan && !next.rootDir && !next.preset && !next.entrypoint && next.buildMode === 'AUTO' && result.choices?.length === 1 && result.findings.some(f => f.id === 'layout.unrecognized')) {
+        next = { ...choiceSettings(next, result.choices[0]), useRepositoryConfig: next.useRepositoryConfig };
         setForm(next);
         project = await api<Project>(`/projects/${project.id}`, { method: 'PATCH', body: { ...next, name: body.name, branch: body.branch } });
         if (!mounted.current) return;
@@ -114,6 +115,17 @@ export default function CreateProject({ onProject, onDeployed }: { onProject: (p
     finally { working.current = false; if (mounted.current) setBusy(''); }
   }
 
+  function changeRepository(value: string) {
+    let key: string | undefined;
+    try { key = repositoryIdentity(value).url; } catch { /* Keep incomplete URL editing local. */ }
+    if (key !== identity?.url) {
+      if (identity && drafts.current.has(identity.url)) savedForms.current.set(identity.url, { form: { ...form }, migrationCommand });
+      const remembered = key ? savedForms.current.get(key) : undefined;
+      if (drafts.current.size) setForm(remembered ? { ...remembered.form } : initialSetup());
+      setMigrationCommand(remembered?.migrationCommand ?? null);
+    }
+    setRepoUrl(value); setChecked(''); setCheckedAt(0); setError(''); setEnvValues({}); setSavedNames([]); setReport(undefined); setCatalog([]); setScopes([]);
+  }
   function choose(choice: EntryChoice) { void analyze(choiceSettings(form, choice)); }
   function chooseFolder(root: string) {
     const candidates = catalog.filter(choice => choice.rootDir === root);
@@ -125,7 +137,7 @@ export default function CreateProject({ onProject, onDeployed }: { onProject: (p
     <form onSubmit={event => { event.preventDefault(); void analyze(form, false, true); }} className="flex flex-wrap items-end gap-3" aria-label="Analyze repository">
       <label className="min-w-0 flex-1 text-sm">Repository URL<HelpLink topic="Analyze" text="Analyze saves an undeployed project and checks its repository. It uses a project slot, not a deployment attempt." />
         <input className={input} type="url" placeholder="https://github.com/owner/repository" aria-label="Repository URL" value={repoUrl} required disabled={!!busy}
-          onChange={event => { setRepoUrl(event.target.value); setChecked(''); setCheckedAt(0); setError(''); setEnvValues({}); setSavedNames([]); setReport(undefined); setCatalog([]); setScopes([]); setMigrationCommand(null); }} />
+          onChange={event => changeRepository(event.target.value)} />
       </label>
       <button type="submit" className={primary} disabled={!!busy || !repoUrl.trim()}>{report && currentDraft ? 'Analyze again' : 'Analyze'}</button>
     </form>

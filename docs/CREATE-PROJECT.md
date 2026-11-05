@@ -10,6 +10,8 @@ The unchanged preflight API requires a saved project. Analyze therefore saves
 an undeployed project, which uses a project quota slot but no deployment attempt.
 Repeated analysis in the same flow reuses that project. If you leave or reload,
 it remains in the project list and can be continued in project settings.
+Switching to another repository starts with fresh defaults; folder selections
+and entered secret values are not carried across repositories.
 
 ## Choosing an application
 
@@ -17,8 +19,10 @@ A detected frontend/backend pair offers Both, Frontend only and Backend only.
 Both means the existing supported single-container recipe; this is not general
 multi-service hosting. Ambiguous folders and Python module:application targets
 offer detected dropdown choices. A single unambiguous suggestion is selected
-automatically, with one bounded recheck. Selecting an app disables repository
-defaults just as the existing Requirements selection does. Review its new plan.
+automatically, with one bounded recheck, preserving repository defaults. Explicit
+Advanced selections are not silently replaced. Manually choosing an app disables
+repository defaults just as the existing Requirements selection does. Review its
+new plan.
 
 Manual folder and Python entry-point inputs appear in Advanced only when the
 detector has no candidates for that field. The backend still validates every

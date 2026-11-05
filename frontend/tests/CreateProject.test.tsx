@@ -158,13 +158,48 @@ it('uses detected folder and Python dropdowns for ambiguous candidates', async (
   expect(screen.getByRole('combobox', { name: 'Python entry point (optional)' })).toBeTruthy();
 });
 
-it('automatically selects a single detected app, preserving the derived name and branch', async () => {
-  result = () => project.rootDir ? ready() : { version: 7, stack: null, status: 'unsupported', reason: 'Choose', requiredEnv: [],
+it('automatically selects a single app without discarding repository defaults, name or branch', async () => {
+  result = () => project.rootDir ? { ...ready(), plan: { ...ready().plan!, releaseCommand: project.useRepositoryConfig ? 'python migrate.py' : null } } : { version: 7, stack: null, status: 'unsupported', reason: 'Choose', requiredEnv: [],
     findings: [{ id: 'layout.unrecognized', severity: 'blocker', message: 'Select root', fix: 'Use the detected root', evidence: [] }],
     choices: [{ rootDir: 'server', label: 'Server', preset: null, entrypoint: null, scope: 'API' }] };
   setup(); await analyze(); await waitFor(() => expect(deployButton().disabled).toBe(false));
-  expect(project).toMatchObject({ rootDir: 'server', name: 'my-app', branch: 'trunk' });
+  expect(project).toMatchObject({ rootDir: 'server', name: 'my-app', branch: 'trunk', useRepositoryConfig: true });
+  expect((screen.getByRole('checkbox', { name: 'Run database migrations on deploy' }) as HTMLInputElement).checked).toBe(true);
   expect(screen.queryByRole('combobox', { name: 'App folder' })).toBeNull();
+});
+
+it('does not silently replace an invalid explicit Advanced folder with a suggested one', async () => {
+  result = () => ({ version: 7, stack: null, status: 'unsupported', reason: 'Invalid folder', requiredEnv: [],
+    findings: [{ id: 'layout.root-directory', severity: 'blocker', message: 'Selected folder was not found', fix: 'Choose a detected folder', evidence: [] }],
+    choices: [{ rootDir: 'server', label: 'Server', preset: null, entrypoint: null, scope: 'API' }] });
+  setup(); const user = userEvent.setup();
+  await user.click(screen.getByText('Advanced settings'));
+  await user.type(screen.getByRole('textbox', { name: 'Root directory (optional)' }), 'missing');
+  await analyze();
+  await screen.findByRole('region', { name: 'Deployment review' });
+  expect(project.rootDir).toBe('missing'); expect(deployButton().disabled).toBe(true);
+  expect(request.mock.calls.filter(([path, opts]) => path === '/projects/draft' && opts?.method === 'PATCH')).toHaveLength(0);
+});
+
+it('starts another repository with fresh defaults rather than carrying over the previous inferred folder', async () => {
+  result = () => project.repoUrl.endsWith('/my-app') && !project.rootDir ? {
+    version: 7, stack: null, status: 'unsupported', reason: 'Choose', requiredEnv: [],
+    findings: [{ id: 'layout.unrecognized', severity: 'blocker', message: 'Choose a root', fix: 'Use server', evidence: [] }],
+    choices: [{ rootDir: 'server', label: 'Server', preset: null, entrypoint: null, scope: 'API' }],
+  } : ready();
+  setup(); const user = await analyze(); await waitFor(() => expect(deployButton().disabled).toBe(false));
+  expect(project.rootDir).toBe('server');
+  await user.clear(screen.getByRole('textbox', { name: 'Repository URL' }));
+  await user.type(screen.getByRole('textbox', { name: 'Repository URL' }), 'https://github.com/owner/other-app');
+  expect(screen.queryByRole('button', { name: 'Deploy' })).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Analyze' })); await waitFor(() => expect(deployButton().disabled).toBe(false));
+  expect(creates()).toHaveLength(2);
+  expect(creates()[1][1]?.body).toMatchObject({ name: 'other-app', rootDir: null, useRepositoryConfig: true, preset: null, entrypoint: null });
+  await user.clear(screen.getByRole('textbox', { name: 'Repository URL' }));
+  await user.type(screen.getByRole('textbox', { name: 'Repository URL' }), 'https://github.com/owner/my-app');
+  await user.click(screen.getByText('Advanced settings'));
+  expect((screen.getByRole('textbox', { name: 'Root directory (optional)' }) as HTMLInputElement).value).toBe('server');
+  expect(creates()).toHaveLength(2);
 });
 
 it('prefills migrations and skips an inherited command without disabling other repository defaults', async () => {
