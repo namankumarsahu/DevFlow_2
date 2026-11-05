@@ -1,7 +1,7 @@
 import { readdir } from 'fs/promises';
 import path from 'path';
 import { preflight } from '../src/lib/autobuild/preflight';
-import { prepareBuild } from '../src/lib/autobuild';
+import { prepareBuild, analyzeDeployment } from '../src/lib/autobuild';
 import { lintDockerfile } from '../src/lib/dockerfileLint';
 const { inspectFixture } = require('../scripts/fixture-suite.cjs');
 describe('real project recipe regressions', () => {
@@ -10,7 +10,7 @@ describe('real project recipe regressions', () => {
   it('matches every committed expected detection, finding and Dockerfile property', async () => {
     expect(fixtureNames.length).toBeGreaterThanOrEqual(6);
     for (const name of fixtureNames) {
-      const fixture = await inspectFixture(path.join(__dirname, 'fixtures/real', name), { preflight, prepareBuild });
+      const fixture = await inspectFixture(path.join(__dirname, 'fixtures/real', name), { preflight, prepareBuild, analyzeDeployment });
       try {
         expect({ fixture: name, stack: fixture.requirements.stack, status: fixture.requirements.status, findings: [...new Set(fixture.requirements.findings.map((f: any) => f.id))].sort() }).toEqual({ fixture: name, stack: fixture.expected.stack, status: fixture.expected.status, findings: [...fixture.expected.findings].sort() });
         if (fixture.dockerfile) {

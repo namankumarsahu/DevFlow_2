@@ -77,6 +77,8 @@ model Project {
   containerPort       Int          @default(3000)
   buildMode           BuildMode    @default(AUTO)
   preset              BuildPreset?
+  entrypoint          String?      // Explicit detected Python module:application.
+  useRepositoryConfig Boolean      @default(true)
   startCommand        String?
   buildCommand        String?
   releaseCommand      String?

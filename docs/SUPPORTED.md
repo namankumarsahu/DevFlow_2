@@ -20,6 +20,11 @@ Set it to `frontend` to deploy only that folder; a sibling backend is excluded.
 Dockerfile precedence applies within the selected directory. Relative paths must
 exist inside the clone and cannot traverse parents or symlinks.
 
+Optional versioned [repository configuration](REPOSITORY-CONFIGURATION.md) supplies
+defaults. Explicit dashboard settings take precedence; the review identifies the
+configuration source. Ambiguous layouts offer bounded folder/Python entry-point
+choices. Recorded plans retain reviewed and resolved identities for comparison.
+
 Each preflight result includes a status and reason:
 
 - `supported`: a recognized layout with no known warnings or blockers.

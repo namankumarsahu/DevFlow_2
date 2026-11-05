@@ -1,7 +1,7 @@
 process.env.NODE_ENV = 'test';
 process.env.DEMO_MODE = 'true';
 
-import { cp, mkdtemp, readFile, rm } from 'fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
@@ -110,6 +110,19 @@ it('runs release and seed before starting the serving container', async () => {
   expect(commands.slice(0, 2).map((o) => o.args.at(-1))).toEqual(['echo migrate', 'echo seed']);
   expect(commands[2].args).toContain('-d');
   expect(commands[0].timeoutMs).toBeLessThanOrEqual(config.deployTimeoutMs);
+});
+it('executes reviewed repository release commands in constrained one-off containers', async () => {
+  const original = (runProcess as jest.Mock).getMockImplementation()!;
+  (runProcess as jest.Mock).mockImplementation(async opts => {
+    const result = await original(opts);
+    if (opts.cmd === 'git') await writeFile(path.join(opts.args.at(-1), 'devflow.json'), JSON.stringify({ version: 1, releaseCommand: 'echo repo-migrate', seedCommand: 'echo repo-seed' }));
+    return result;
+  });
+  await processDeployment('deployment');
+  expect(result().status).toBe('SUCCESS');
+  const commands = (runProcess as jest.Mock).mock.calls.map(([o]) => o).filter(o => o.cmd === 'docker' && o.args.includes('--entrypoint'));
+  expect(commands.map(o => o.args.at(-1))).toEqual(['echo repo-migrate', 'echo repo-seed']);
+  expect(commands[0].args).toEqual(expect.arrayContaining(['--memory', '256m', '--security-opt', 'no-new-privileges']));
 });
 
 it.each(['failed', 'timeout'])('keeps the old version serving when release returns %s', async outcome => {

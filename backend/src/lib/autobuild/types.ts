@@ -26,7 +26,7 @@ export interface BuildStrategy<P = any> {
   detect(repoDir: string): Promise<Detection<P> | null>;
   render(detection: Detection<P>, ctx: RenderContext): string;
 }
-export type BuildSettings = { rootDir?: string | null; buildMode?: 'AUTO' | 'DOCKERFILE'; preset?: Preset | null; startCommand?: string | null; buildCommand?: string | null };
+export type BuildSettings = { useRepositoryConfig?: boolean; rootDir?: string | null; entrypoint?: string | null; buildMode?: 'AUTO' | 'DOCKERFILE'; preset?: Preset | null; startCommand?: string | null; buildCommand?: string | null };
 export type BuildPlan = {
   rule: 'preset' | 'repo Dockerfile' | 'auto-detect'; stack: string; evidence: string[];
   dockerfileDir: string; contextDir?: string; generated: boolean; warning?: string;

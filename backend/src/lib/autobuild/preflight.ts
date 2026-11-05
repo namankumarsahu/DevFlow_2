@@ -17,7 +17,7 @@ export type PreflightResult = {
 };
 export type PreflightSettings = BuildSettings & { containerPort?: number; releaseCommand?: string | null; seedCommand?: string | null; rootDir?: string | null };
 export function preflightKey(project: PreflightSettings & { repoUrl?: string; branch?: string }, envNames: string[], context?: RenderContext) {
-  return createHash('sha256').update(JSON.stringify([SUPPORT_VERSION, project.repoUrl, project.branch, project.rootDir ?? null, project.buildMode ?? 'AUTO', project.preset ?? null, project.containerPort ?? 3000, project.startCommand ?? null, project.buildCommand ?? null, project.releaseCommand ?? null, project.seedCommand ?? null, [...envNames].sort(), context])).digest('hex');
+  return createHash('sha256').update(JSON.stringify([SUPPORT_VERSION, project.repoUrl, project.branch, project.useRepositoryConfig ?? true, project.rootDir ?? null, project.entrypoint ?? null, project.buildMode ?? 'AUTO', project.preset ?? null, project.containerPort ?? 3000, project.startCommand ?? null, project.buildCommand ?? null, project.releaseCommand ?? null, project.seedCommand ?? null, [...envNames].sort(), context])).digest('hex');
 }
 export function summarize(findings: Finding[], stack: string | null, rule: string): PreflightResult {
   const blockers = findings.filter((f) => f.severity === 'blocker');
@@ -47,7 +47,7 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
     if (ownDockerfile || !settings.preset && settings.buildMode === 'DOCKERFILE') {
       const problems = await lintDockerfileAt(repoDir, { maxBytes: 100 * 1024 });
       if (problems.length) add('layout.dockerfile', 'blocker', 'A valid repository Dockerfile is required.', 'Dockerfile', 1, 'Fix the Dockerfile or choose a supported preset.');
-    } else detection = settings.preset ? await detectPreset(repoDir, settings.preset) : await detect(repoDir);
+    } else detection = settings.preset ? await detectPreset(repoDir, settings.preset, settings.entrypoint) : await detect(repoDir, settings.entrypoint);
   } catch {
     add('layout.unrecognized', 'blocker', 'No unambiguous supported application entry point was found.', '.', 1, 'Choose a matching preset, use one supported app at the root, or provide a Dockerfile.');
   }
@@ -66,7 +66,7 @@ async function inspect(repoDir: string, settings: PreflightSettings, envNames: s
   const sources: { filename: string; source: string }[] = [];
   let scannedBytes = 0;
   for (const filename of await names(repoDir)) {
-    if (filename === 'expected.json' || ignored.test(filename) || !sourcePattern.test(filename) && !filename.endsWith('requirements.txt') && filename !== 'Dockerfile') continue;
+    if (filename === 'expected.json' || filename === 'devflow.json' || ignored.test(filename) || !sourcePattern.test(filename) && !filename.endsWith('requirements.txt') && filename !== 'Dockerfile') continue;
     if ((await entry(repoDir, filename))!.size > 256 * 1024) { add('scan.large-file', 'warning', 'A large source file was not inspected.', filename, 1, 'Review its startup and configuration manually.'); continue; }
     scannedBytes += (await entry(repoDir, filename))!.size;
     if (scannedBytes > 4 * 1024 * 1024) { if (!findings.some((f) => f.id === 'scan.limit')) add('scan.limit', 'warning', 'The bounded source scan reached 4 MB; some files were not inspected.', '.', 1, 'Review remaining source configuration manually.'); continue; }

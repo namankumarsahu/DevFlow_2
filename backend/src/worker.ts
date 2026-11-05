@@ -172,6 +172,7 @@ export async function processDeployment(deploymentId: string) {
   let switched = false;
   let failed = true;
   let failureClass = 'clone';
+  let releaseCommands = [project.releaseCommand, project.seedCommand];
 
   try {
     if (quotaApplies(ownerRole)) releaseUser = await acquireLock(`lock:user-build:${project.ownerId}`, config.deployTimeoutMs + 2 * 60 * 1000);
@@ -216,8 +217,9 @@ export async function processDeployment(deploymentId: string) {
       const commit = (await capture('git', ['rev-parse', 'HEAD'], workDir)).trim();
       const analysis = await analyzeDeployment(workDir, project, decrypted.map((v: { key: string }) => v.key), { port: project.containerPort, healthPath: config.healthPath, limits: effectiveLimits(project, ownerRole, config.maxLimits, config.defaultLimits) }, config.build.maxDockerfileKb * 1024, commit);
       const requirements = analysis.report;
-      await prisma.deployment.update({ where: { id: deploymentId }, data: { preflight: JSON.parse(JSON.stringify(requirements)), detectedStack: requirements.stack, buildRule: requirements.rule } });
+      if (analysis.resolved) releaseCommands = [analysis.resolved.settings.releaseCommand ?? null, analysis.resolved.settings.seedCommand ?? null];
       const reviewedPlanId = (dep.preflight as { reviewedPlanId?: string } | null)?.reviewedPlanId;
+      await prisma.deployment.update({ where: { id: deploymentId }, data: { preflight: JSON.parse(JSON.stringify({ ...requirements, ...(reviewedPlanId ? { reviewedPlanId } : {}) })), detectedStack: requirements.stack, buildRule: requirements.rule } });
       if (reviewedPlanId && requirements.plan?.id !== reviewedPlanId) throw new Error('The repository revision, settings or effective policy changed after plan review. Run Requirements again before deploying.');
       if (requirements.plan) await logger.log(`==> Deployment plan v${requirements.plan.version}: ${requirements.plan.id} (${requirements.plan.scope}; HTTP readiness only)`);
       await logger.log(`==> Requirements: ${requirements.status} — ${requirements.reason}`);
@@ -293,7 +295,7 @@ export async function processDeployment(deploymentId: string) {
 
     if (!dep.rollbackOfId) {
       failureClass = 'release';
-      await runReleaseCommands([project.releaseCommand, project.seedCommand], {
+      await runReleaseCommands(releaseCommands, {
         deploymentId, image: imageTag!, network: config.appsNetwork, envFile, limits: runLimitArgs(limits, policy),
         run: (args) => run(ctx, 'docker', args), remove: async (name) => { await capture('docker', ['rm', '-f', name]); }, log: logger.log,
       });

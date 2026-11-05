@@ -17,6 +17,7 @@ import { validCommand } from '../lib/autobuild/render';
 import { checkProject } from '../services/preflight';
 import { supportMatrix } from '../lib/autobuild/support';
 import { validRootDir } from '../lib/autobuild/root';
+import { validEntrypoint } from '../lib/autobuild/configuration';
 
 export const projectsRouter = Router();
 projectsRouter.use(authenticate);
@@ -43,6 +44,8 @@ const projectSchema = z.object({
   containerPort: z.number().int().min(1).max(65535).default(3000),
   buildMode: z.enum(['AUTO', 'DOCKERFILE']).default('AUTO'),
   rootDir: z.string().trim().min(1).max(200).refine(validRootDir, 'Must be a relative repository folder without parent traversal').nullable().default(null),
+  entrypoint: z.string().refine(validEntrypoint, 'Must be a detected Python module:application').nullable().default(null),
+  useRepositoryConfig: z.boolean().default(true),
   preset: z.enum(['STATIC', 'NODE', 'PYTHON_DJANGO', 'PYTHON_FLASK', 'PYTHON_FASTAPI', 'FULLSTACK']).nullable().default(null),
   startCommand: commandSchema.default(null),
   buildCommand: commandSchema.default(null),

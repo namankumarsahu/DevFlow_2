@@ -3,9 +3,11 @@ import path from 'path';
 import { entry, file } from './files';
 import { normalizeRootDir } from './root';
 import { resolvePlan, ResolvedPlan } from './plan';
+import { configuredSettings } from './configuration';
 import { BuildPlan, BuildSettings, RenderContext } from './types';
 
 export { supported, detect, detectPreset } from './selection';
+export { analyzeDeployment } from './analyze';
 // App code remains the build context. This Dockerfile-specific ignore file
 // enforces exclusions even when the repository has permissive ! patterns.
 export const generatedExclusions = [
@@ -15,7 +17,9 @@ export const generatedExclusions = [
 ].join('\n') + '\n';
 
 export async function prepareBuild(cloneDir: string, settings: BuildSettings, ctx: RenderContext, maxBytes: number, log: (line: string) => Promise<void>, record: (meta: { rule: string; stack?: string }) => Promise<void> = async () => undefined, approved?: ResolvedPlan): Promise<BuildPlan> {
-  const resolved = approved ?? await resolvePlan(cloneDir, settings, ctx, maxBytes, null, [], []);
+  const configured = approved ? { settings: approved.settings, source: approved.plan.configuration } : await configuredSettings(cloneDir, settings);
+  settings = configured.settings;
+  const resolved = approved ?? await resolvePlan(cloneDir, settings, ctx, maxBytes, null, [], [], configured.source);
   const { contextDir: repoDir, text, generated, warning, detection, plan } = resolved;
   if (normalizeRootDir(settings.rootDir) !== '.') await log(`==> Build root: ${normalizeRootDir(settings.rootDir)} (files outside this folder are excluded)`);
   await record({ rule: plan.rule, stack: plan.stack });

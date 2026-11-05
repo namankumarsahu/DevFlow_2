@@ -20,3 +20,6 @@ No model, credentials or production data are included or executed by preflight.
 `frontend-root` reduces business_card_scanner_contact_manager's saved frontend
 root regression: an unrelated database-dependent sibling must not be inspected,
 built, or sent in the selected frontend's build context.
+
+`configured-site` exercises the versioned repository-root devflow.json format
+and a static app that is intentionally located outside conventional app folders.

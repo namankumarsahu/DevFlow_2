@@ -36,12 +36,27 @@ Acceptance gates: existing tests, plan identity/materialization tests, API stale
 review rejection before quota consumption, worker drift rejection before BuildKit,
 backend/frontend builds, and a local sandboxed deployment with a reviewed ID.
 
-## Remaining work in phase 1
+## Foundation release 2: repository configuration and application selection
 
-- A strict versioned repository configuration schema with documented precedence.
-- Explicit entry-point choices for ambiguous layouts, rather than generic advice.
-- Richer per-service environment and external service dependency modeling.
-- Distinguish requested and applied plan history in the deployment UI.
+- Strict version 1 devflow.json defaults with explicit dashboard precedence and
+  an opt-out. Secrets, resources, mounts and networks cannot be defined there.
+- Bounded folder and Python module-level entry-point choices for ambiguous apps.
+- External-service requirements carry file evidence and remain explicitly unverified.
+- Selected deployment history displays reviewed/resolved identities and commands.
+- A backed-up additive SQL change adds nullable entrypoint and useRepositoryConfig
+  defaulting true, preserving existing project roots and deployment records.
+- Python detection excludes function-local objects and no longer invents absent
+  app:app entry points. Factory/dynamic patterns remain Dockerfile cases.
+
+See REPOSITORY-CONFIGURATION.md for schema, precedence and migration/rollback.
+All 313 Linux tests passed with unchanged timeouts; fixture checks and both
+production builds passed. Native Windows validation was supplementary; POSIX
+process-group and symlink coverage was verified in Linux.
+
+The next compatibility work covers production start scripts, unsupported
+workspace layouts, and warnings that currently confuse development scripts with
+the actual production command. Service-group dependency provisioning and public
+build-time environment configuration remain separate work.
 
 ## Following releases
 

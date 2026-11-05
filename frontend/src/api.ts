@@ -1,5 +1,6 @@
 export type User = { id: string; email: string; role: 'USER' | 'ADMIN'; createdAt: string };
 import type { BuildSettings } from './components/BuildFields';
+import type { DeploymentPlan } from './components/Requirements';
 export type Project = BuildSettings & {
   id: string; name: string; repoUrl: string; branch: string; environment: string;
   containerPort: number; memoryMb: number; cpus: number; diskMb: number; hostPort: number; slug: string | null; webhookSecret: string; currentDeploymentId: string | null;
@@ -36,6 +37,7 @@ export type Deployment = {
   rollbackOfId: string | null; error: string | null;
   detectedStack: string | null; buildRule: string | null;
   failureClass?: string | null;
+  preflight?: { reviewedPlanId?: string; plan?: DeploymentPlan } | null;
 };
 
 export const auth = {

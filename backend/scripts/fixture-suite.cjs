@@ -9,11 +9,13 @@ async function inspectFixture(root, library) {
   try {
     await fs.cp(root, repo, { recursive: true, filter: p => !['expected.json', 'PROVENANCE.md'].includes(path.basename(p)) });
     const settings = expected.settings || {};
-    const requirements = await library.preflight(repo, settings, expected.envNames || []);
+    const context = { port: 3000, limits: { memoryMb: 256, cpus: 0.25, diskMb: 512 } };
+    const analysis = library.analyzeDeployment ? await library.analyzeDeployment(repo, settings, expected.envNames || [], context, 102400) : null;
+    const requirements = analysis ? analysis.report : await library.preflight(repo, settings, expected.envNames || []);
     const logs = [];
     let plan, dockerfile;
     if (!requirements.findings.some(f => f.severity === 'blocker')) {
-      plan = await library.prepareBuild(repo, settings, { port: 3000, limits: { memoryMb: 256, cpus: 0.25, diskMb: 512 } }, 102400, async line => logs.push(line));
+      plan = await library.prepareBuild(repo, settings, context, 102400, async line => logs.push(line), undefined, analysis?.resolved);
       dockerfile = await fs.readFile(path.join(plan.dockerfileDir, 'Dockerfile'), 'utf8');
     }
     return { expected, requirements, plan, dockerfile, repo, cleanup: () => fs.rm(staging, { recursive: true, force: true }) };

@@ -41,12 +41,7 @@ export async function detectNode(repo: string, root = '.'): Promise<Detection | 
   return { strategyId: 'node', stack: framework === 'node' ? deps['@nestjs/core'] ? 'NestJS' : deps.express ? 'Express' : 'Node' : framework === 'next' ? 'Next.js' : framework === 'cra' ? 'Create React App' : 'Vite', evidence: parameters.manifests.map((n) => at(root, n)), parameters };
 }
 
-export async function detectPython(repo: string, root = '.', force?: PythonApp['framework']): Promise<Detection | null> {
-  const req = await file(repo, at(root, 'requirements.txt'));
-  const pyproject = await file(repo, at(root, 'pyproject.toml'));
-  if (req === null && pyproject === null) return null;
-  const manifest = req !== null ? 'requirements.txt' : 'pyproject.toml';
-  const dependencies = `${req ?? ''}\n${pyproject ?? ''}`;
+export async function pythonEntrypoints(repo: string, root = '.') {
   const available = await names(repo, root);
   const candidates: { framework: PythonApp['framework']; target: string; evidence: string }[] = [];
   for (const name of available.filter((n) => n.endsWith('.py'))) {
@@ -58,17 +53,27 @@ export async function detectPython(repo: string, root = '.', force?: PythonApp['
       candidates.push({ framework: 'django', target: `${module}:application`, evidence: name });
     }
     for (const [framework, factory] of [['flask', 'Flask'], ['fastapi', 'FastAPI']] as const) {
-      const match = new RegExp(`(?:^|\\n)\\s*([A-Za-z_]\\w*)\\s*=\\s*${factory}\\s*\\(`).exec(source);
-      if (match) candidates.push({ framework, target: `${module}:${match[1]}`, evidence: name });
+      const pattern = new RegExp(`(?:^|\\n)([A-Za-z_]\\w*)[ \\t]*(?::[^=\\n]+)?=[ \\t]*${factory}[ \\t]*\\(`, 'g');
+      for (const match of source.matchAll(pattern)) candidates.push({ framework, target: `${module}:${match[1]}`, evidence: name });
     }
   }
-  const selected = force ? candidates.filter((c) => c.framework === force) : candidates;
+  return candidates;
+}
+export async function detectPython(repo: string, root = '.', force?: PythonApp['framework'], target?: string | null): Promise<Detection | null> {
+  const req = await file(repo, at(root, 'requirements.txt'));
+  const pyproject = await file(repo, at(root, 'pyproject.toml'));
+  if (req === null && pyproject === null) return null;
+  const manifest = req !== null ? 'requirements.txt' : 'pyproject.toml';
+  const dependencies = `${req ?? ''}\n${pyproject ?? ''}`;
+  const candidates = await pythonEntrypoints(repo, root);
+  const selected = candidates.filter(c => (!force || c.framework === force) && (!target || c.target === target));
+  if (target && !selected.length) throw new Error('Selected Python entry point was not found in the source files');
   if (selected.length > 1) throw new Error(`Ambiguous Python entry point in ${root}; keep one app entry point or supply your own Dockerfile`);
   let candidate = selected[0];
   const framework = force ?? candidate?.framework ?? (/\bdjango\b/i.test(dependencies) ? 'django' : /\bfastapi\b/i.test(dependencies) ? 'fastapi' : /\bflask\b/i.test(dependencies) ? 'flask' : null);
   if (!framework) return null;
   if (!candidate && framework === 'django') throw new Error(`No Django settings.py + wsgi.py module found in ${root}; add a Dockerfile with an explicit entry point`);
-  if (!candidate) candidate = { framework, target: framework === 'fastapi' ? 'main:app' : 'app:app', evidence: at(root, framework === 'fastapi' ? 'main.py' : 'app.py') };
+  if (!candidate) throw new Error(`No module-level Python HTTP application found in ${root}; use a Dockerfile for factory/dynamic entry points`);
   const parameters: PythonApp = { kind: 'python', root, framework, manifest, target: candidate.target, server: framework === 'fastapi' ? 'uvicorn' : 'gunicorn' };
   if (framework === 'django') {
     const wsgi = await file(repo, candidate.evidence) ?? '';

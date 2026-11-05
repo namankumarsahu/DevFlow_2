@@ -48,3 +48,8 @@ it('rejects unknown enum values and preserves ownership checks', async () => {
   db.seedUser('other'); db.seedProject('private', 'other');
   expect((await request(app).patch('/api/projects/private').set('Authorization', auth()).send({ preset: 'STATIC' })).status).toBe(404);
 });
+it('saves detected Python entry points and explicit repository-configuration mode', async () => {
+  const res = await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ entrypoint: 'app.main:application', useRepositoryConfig: false });
+  expect(res.status).toBe(200); expect(res.body).toMatchObject({ entrypoint: 'app.main:application', useRepositoryConfig: false });
+  for (const entrypoint of ['app:app;whoami', '../app:app', 'app:create_app()', 'app:app\n']) expect((await request(app).patch('/api/projects/project').set('Authorization', auth()).send({ entrypoint })).status).toBe(400);
+});
