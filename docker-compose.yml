@@ -48,6 +48,7 @@ x-backend-env: &backend-env
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: devflow
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -60,6 +61,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     volumes: [redisdata:/data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
